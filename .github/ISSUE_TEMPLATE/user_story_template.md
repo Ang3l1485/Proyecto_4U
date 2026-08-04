@@ -25,6 +25,8 @@
 ---
 
 ### Tareas Técnicas (Sub-tasks)
+- Revisar apartado inferior.
+[Ajuntar las tareas como sub-issues de la HU]
 - [ ] **[Backend / Mobile / UI / IA]** Task 1: [Descripción corta de la tarea técnica]
 - [ ] **[Backend / Mobile / UI / IA]** Task 2: [Descripción corta de la tarea técnica]
 
