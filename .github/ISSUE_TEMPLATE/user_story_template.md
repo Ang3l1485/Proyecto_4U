@@ -1,4 +1,4 @@
-## ID y Título de la HU: [HU-XX] - [Título Descriptivo]
+## [HU-XX] - [Título Descriptivo]
 
 ### Definición de la Historia
 **Como** [Rol del usuario: ej. Recolector de Datos / Persona con discapacidad visual / Investigador]
