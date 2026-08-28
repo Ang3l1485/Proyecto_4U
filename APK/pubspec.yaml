@@ -18,6 +18,7 @@ dependencies:
   path_provider: ^2.1.6
   # 13.x requires Android compileSdk 37; Flutter stable setup currently targets 36.
   permission_handler: ^12.0.3
+  share_plus: 13.3.0
 
 dev_dependencies:
   flutter_lints: ^6.0.0
