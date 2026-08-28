@@ -1,0 +1,32 @@
+name: dataset_app
+description: Captura local de dataset georreferenciado.
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.8.0 <4.0.0"
+
+dependencies:
+  camera: ^0.12.0+2
+  camera_windows: ^0.2.6+4
+  flutter:
+    sdk: flutter
+  flutter_compass: ^0.8.1
+  geolocator: ^14.0.3
+  image: ^4.9.1
+  image_picker: ^1.2.3
+  path_provider: ^2.1.6
+  # 13.x requires Android compileSdk 37; Flutter stable setup currently targets 36.
+  permission_handler: ^12.0.3
+  share_plus: 13.3.0
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+
+
+flutter:
+  uses-material-design: true
+
+  
