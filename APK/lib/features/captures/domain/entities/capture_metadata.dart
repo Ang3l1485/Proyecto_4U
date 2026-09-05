@@ -10,6 +10,21 @@ enum MetadataStatus {
   }
 }
 
+enum CampusZone {
+  bloque32;
+
+  String get label => 'Biblioteca';
+
+  static CampusZone? fromBlock(String block) {
+    for (final CampusZone zone in values) {
+      if (zone.name == block) {
+        return zone;
+      }
+    }
+    return null;
+  }
+}
+
 class CaptureMetadata {
   const CaptureMetadata({
     required this.block,
