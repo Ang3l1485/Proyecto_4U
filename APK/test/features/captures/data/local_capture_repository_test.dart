@@ -80,6 +80,41 @@ void main() {
 
     expect(await repository.listCaptures(), isEmpty);
   });
+
+  test('persists the catalog values for new campus zones', () async {
+    final Capture biblioteca = await repository.createCapture(
+      CreateCaptureRequest(
+        imageBytes: _jpegBytes(),
+        metadata: _metadata(
+          block: CampusZone.bloque32.persistedValue,
+          timestamp: DateTime(2026, 8, 23, 10, 1),
+        ),
+        quality: _quality(),
+        wasQualityOverride: false,
+      ),
+    );
+    final Capture bloque38 = await repository.createCapture(
+      CreateCaptureRequest(
+        imageBytes: _jpegBytes(),
+        metadata: _metadata(
+          block: CampusZone.bloque38.persistedValue,
+          timestamp: DateTime(2026, 8, 23, 10, 2),
+        ),
+        quality: _quality(),
+        wasQualityOverride: false,
+      ),
+    );
+
+    final List<Capture> captures = await repository.listCaptures();
+    expect(
+      captures.firstWhere((Capture item) => item.id == biblioteca.id).metadata.block,
+      'Biblioteca',
+    );
+    expect(
+      captures.firstWhere((Capture item) => item.id == bloque38.id).metadata.block,
+      'bloque38',
+    );
+  });
 }
 
 Uint8List _jpegBytes() {
@@ -92,12 +127,15 @@ Uint8List _jpegBytes() {
   return Uint8List.fromList(image.encodeJpg(source));
 }
 
-CaptureMetadata _metadata() {
+CaptureMetadata _metadata({
+  String block = 'A',
+  DateTime? timestamp,
+}) {
   return CaptureMetadata(
-    block: 'A',
+    block: block,
     latitude: 4.635,
     longitude: -74.082,
-    timestamp: DateTime(2026, 8, 23, 10),
+    timestamp: timestamp ?? DateTime(2026, 8, 23, 10),
     author: 'Test',
     sessionId: 'session',
     status: MetadataStatus.complete,

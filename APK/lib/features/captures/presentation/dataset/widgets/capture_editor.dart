@@ -144,7 +144,7 @@ class _CaptureEditorState extends State<CaptureEditor> {
     }
     widget.onSave(
       CaptureMetadataChanges(
-        block: _zone!.name,
+        block: _zone!.persistedValue,
         latitude: double.parse(_latitudeController.text),
         longitude: double.parse(_longitudeController.text),
         author: _authorController.text,

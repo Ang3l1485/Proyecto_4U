@@ -47,7 +47,7 @@ class CaptureFormState extends State<CaptureForm> {
       return null;
     }
     return CaptureFormData(
-      block: _zone!.name,
+      block: _zone!.persistedValue,
       latitude: double.parse(_latitudeController.text.trim()),
       longitude: double.parse(_longitudeController.text.trim()),
       author: _authorController.text.trim(),

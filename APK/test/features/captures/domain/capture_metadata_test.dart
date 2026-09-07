@@ -2,6 +2,19 @@ import 'package:dataset_app/features/captures/domain/entities/capture_metadata.d
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('maps campus zones to persisted values and labels', () {
+    expect(CampusZone.bloque32.persistedValue, 'Biblioteca');
+    expect(CampusZone.bloque32.label, 'Biblioteca');
+    expect(CampusZone.bloque38.persistedValue, 'bloque38');
+    expect(CampusZone.bloque38.label, 'Bloque 38');
+  });
+
+  test('resolves current and legacy campus zone values', () {
+    expect(CampusZone.fromBlock('Biblioteca'), CampusZone.bloque32);
+    expect(CampusZone.fromBlock('bloque32'), CampusZone.bloque32);
+    expect(CampusZone.fromBlock('bloque38'), CampusZone.bloque38);
+  });
+
   test('serializes and deserializes all active metadata fields', () {
     final CaptureMetadata original = CaptureMetadata(
       block: 'B-12',
