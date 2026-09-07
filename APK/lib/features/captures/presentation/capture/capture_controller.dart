@@ -1,9 +1,7 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../../../../platform/camera/camera_service.dart';
 import '../../../../platform/compass/compass_service.dart';
@@ -302,35 +300,6 @@ class CaptureController extends ChangeNotifier {
         statusMessage: 'Imagen descartada. Puedes capturar de nuevo.',
       ),
     );
-  }
-
-  /// Comparte (o permite "descargar") el archivo JSON de metadata
-  /// de la última captura guardada, usando el selector nativo del
-  /// sistema operativo.
-  Future<void> shareLastCaptureMetadata() async {
-    final Capture? capture = _state.lastCreatedCapture;
-    if (capture == null) {
-      return;
-    }
-    try {
-      final File metadataFile = File(capture.metadataPath);
-      if (!await metadataFile.exists()) {
-        _setState(
-          _copyState(
-            statusMessage: 'El archivo de metadata ya no existe en el dispositivo.',
-          ),
-        );
-        return;
-      }
-      await Share.shareXFiles(
-        <XFile>[XFile(metadataFile.path, mimeType: 'application/json')],
-        text: 'Metadata de captura ${capture.id}',
-      );
-    } catch (error) {
-      _setState(
-        _copyState(statusMessage: 'No fue posible compartir el JSON: $error'),
-      );
-    }
   }
 
   void _setPendingImage(Uint8List imageBytes, {required String sourceLabel}) {
