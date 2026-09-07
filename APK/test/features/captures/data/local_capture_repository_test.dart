@@ -3,6 +3,9 @@ import 'dart:typed_data';
 
 import 'package:dataset_app/core/errors/capture_storage_exception.dart';
 import 'package:dataset_app/features/captures/data/repositories/local_capture_repository.dart';
+import 'package:dataset_app/features/captures/data/sources/capture_file_store.dart';
+import 'package:dataset_app/features/captures/data/sources/exif_metadata_writer.dart';
+import 'package:dataset_app/features/captures/data/sources/manifest_store.dart';
 import 'package:dataset_app/features/captures/domain/entities/capture.dart';
 import 'package:dataset_app/features/captures/domain/entities/capture_metadata.dart';
 import 'package:dataset_app/features/captures/domain/entities/image_quality_report.dart';
@@ -80,6 +83,52 @@ void main() {
 
     expect(await repository.listCaptures(), isEmpty);
   });
+
+  test('preserves a capture in the manifest when file deletion fails', () async {
+    final Capture capture = Capture(
+      id: 'capture-to-keep',
+      imagePath: '${testDirectory.path}/images/capture-to-keep.jpg',
+      metadataPath: '${testDirectory.path}/metadata/capture-to-keep.json',
+      metadata: _metadata(),
+      quality: _quality(),
+      wasQualityOverride: false,
+    );
+    final ManifestStore manifestStore = ManifestStore(
+      datasetDirectory: testDirectory,
+    );
+    await manifestStore.writeCaptures(<Capture>[capture]);
+    final _MockCaptureFileStore fileStore = _MockCaptureFileStore(
+      datasetDirectory: testDirectory,
+      failure: StateError('delete failed'),
+    );
+    final LocalCaptureRepository failingRepository = LocalCaptureRepository(
+      fileStore: fileStore,
+      manifestStore: manifestStore,
+      exifMetadataWriter: const ExifMetadataWriter(),
+    );
+
+    await expectLater(
+      failingRepository.deleteCaptures(<String>{capture.id}),
+      throwsA(isA<CaptureStorageException>()),
+    );
+
+    final List<Capture> manifestCaptures = await manifestStore.readCaptures();
+    expect(manifestCaptures.map((Capture item) => item.id), contains(capture.id));
+    expect(fileStore.deleteCallCount, 1);
+  });
+}
+
+class _MockCaptureFileStore extends CaptureFileStore {
+  _MockCaptureFileStore({required super.datasetDirectory, required this.failure});
+
+  final Object failure;
+  int deleteCallCount = 0;
+
+  @override
+  Future<void> deleteCaptureFiles(CapturePaths paths) async {
+    deleteCallCount++;
+    throw failure;
+  }
 }
 
 Uint8List _jpegBytes() {
