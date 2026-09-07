@@ -8,14 +8,12 @@ class CaptureActions extends StatelessWidget {
     required this.isSaving,
     required this.hasPendingImage,
     required this.isRejected,
-    required this.hasLastCapture,
     required this.onCapturePhoto,
     required this.onCaptureSequence,
     required this.onPickGallery,
     required this.onSave,
     required this.onSaveRejected,
     required this.onDiscard,
-    required this.onDownloadJson,
   });
 
   final bool isCameraAvailable;
@@ -23,14 +21,12 @@ class CaptureActions extends StatelessWidget {
   final bool isSaving;
   final bool hasPendingImage;
   final bool isRejected;
-  final bool hasLastCapture;
   final VoidCallback onCapturePhoto;
   final VoidCallback onCaptureSequence;
   final VoidCallback onPickGallery;
   final VoidCallback onSave;
   final VoidCallback onSaveRejected;
   final VoidCallback onDiscard;
-  final VoidCallback onDownloadJson;
 
   @override
   Widget build(BuildContext context) {
@@ -72,12 +68,6 @@ class CaptureActions extends StatelessWidget {
             onPressed: isSaving ? null : onDiscard,
             icon: const Icon(Icons.close),
             label: const Text('Descartar'),
-          ),
-        if (hasLastCapture)
-          OutlinedButton.icon(
-            onPressed: onDownloadJson,
-            icon: const Icon(Icons.download),
-            label: const Text('Descargar JSON'),
           ),
       ],
     );
