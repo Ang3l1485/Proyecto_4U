@@ -33,6 +33,10 @@ class DatasetController extends ChangeNotifier {
   DatasetState get state => _state;
   CaptureFilter get activeFilter => _activeFilter;
 
+  Future<Uint8List> readCaptureImage(String captureId) {
+    return _repository.readCaptureImage(captureId);
+  }
+
   Future<void> loadCaptures() async {
     if (_state.isLoading) {
       return;
@@ -40,17 +44,6 @@ class DatasetController extends ChangeNotifier {
     _setState(_copyState(isLoading: true, message: 'Cargando capturas…'));
     try {
       final List<Capture> captures = await _listCaptures.listCaptures();
-      final Map<String, Uint8List> imageBytes = <String, Uint8List>{};
-      for (final Capture capture in captures) {
-        try {
-          imageBytes[capture.id] = await _repository.readCaptureImage(
-            capture.id,
-          );
-        } catch (_) {
-          // The repository already omits missing files. A read race should not
-          // prevent the rest of the dataset from being reviewed.
-        }
-      }
       final List<Capture> filtered = _filterCaptures.filterCaptures(
         captures,
         _activeFilter,
@@ -59,7 +52,6 @@ class DatasetController extends ChangeNotifier {
         DatasetState(
           captures: captures,
           filteredCaptures: filtered,
-          imageBytesById: imageBytes,
           selectedCaptureIds: _state.selectedCaptureIds
               .where(
                 (String id) => captures.any((Capture item) => item.id == id),
@@ -162,9 +154,6 @@ class DatasetController extends ChangeNotifier {
       final List<Capture> remaining = _state.captures
           .where((Capture capture) => !captureIds.contains(capture.id))
           .toList(growable: false);
-      final Map<String, Uint8List> remainingImages =
-          Map<String, Uint8List>.from(_state.imageBytesById)
-            ..removeWhere((String id, Uint8List _) => captureIds.contains(id));
       _setState(
         DatasetState(
           captures: remaining,
@@ -172,7 +161,6 @@ class DatasetController extends ChangeNotifier {
             remaining,
             _activeFilter,
           ),
-          imageBytesById: remainingImages,
           message: 'Captura(s) eliminada(s).',
         ),
       );
@@ -189,7 +177,6 @@ class DatasetController extends ChangeNotifier {
   DatasetState _copyState({
     List<Capture>? captures,
     List<Capture>? filteredCaptures,
-    Map<String, Uint8List>? imageBytesById,
     Set<String>? selectedCaptureIds,
     Capture? selectedCapture,
     bool? isLoading,
@@ -199,7 +186,6 @@ class DatasetController extends ChangeNotifier {
     return DatasetState(
       captures: captures ?? _state.captures,
       filteredCaptures: filteredCaptures ?? _state.filteredCaptures,
-      imageBytesById: imageBytesById ?? _state.imageBytesById,
       selectedCaptureIds: selectedCaptureIds ?? _state.selectedCaptureIds,
       selectedCapture: selectedCapture ?? _state.selectedCapture,
       isLoading: isLoading ?? _state.isLoading,

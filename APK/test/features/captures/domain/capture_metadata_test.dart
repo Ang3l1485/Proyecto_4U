@@ -38,11 +38,12 @@ void main() {
     expect(restored.author, original.author);
     expect(restored.sessionId, original.sessionId);
     expect(restored.status, MetadataStatus.complete);
+    expect(restored.floor, isNull);
     expect(restored.compassHeadingDegrees, 91.5);
     expect(restored.compassDirection, 'E');
     expect(json, isNot(contains('zone')));
     expect(json, isNot(contains('place')));
-    expect(json, isNot(contains('floor')));
+    expect(json, containsPair('floor', isNull));
   });
 
   test('reads legacy JSON while ignoring retired location fields', () {

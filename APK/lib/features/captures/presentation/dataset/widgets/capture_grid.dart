@@ -4,25 +4,45 @@ import 'package:flutter/material.dart';
 
 import '../../../domain/entities/capture.dart';
 
-class CaptureGrid extends StatelessWidget {
+class CaptureGrid extends StatefulWidget {
   const CaptureGrid({
     super.key,
     required this.captures,
-    required this.imagesById,
+    required this.onLoadImage,
     required this.selectedCaptureIds,
     required this.onOpen,
     required this.onToggleSelection,
   });
 
   final List<Capture> captures;
-  final Map<String, Uint8List> imagesById;
+  final Future<Uint8List> Function(String captureId) onLoadImage;
   final Set<String> selectedCaptureIds;
   final ValueChanged<Capture> onOpen;
   final ValueChanged<String> onToggleSelection;
 
   @override
+  State<CaptureGrid> createState() => _CaptureGridState();
+}
+
+class _CaptureGridState extends State<CaptureGrid> {
+  final Map<String, Future<Uint8List>> _imageFutures =
+      <String, Future<Uint8List>>{};
+
+  @override
+  void didUpdateWidget(covariant CaptureGrid oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final Set<String> captureIds = widget.captures
+        .map((Capture capture) => capture.id)
+        .toSet();
+    _imageFutures.removeWhere(
+      (String captureId, Future<Uint8List> _) =>
+          !captureIds.contains(captureId),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (captures.isEmpty) {
+    if (widget.captures.isEmpty) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 32),
         child: Center(child: Text('No hay capturas para este filtro.')),
@@ -37,32 +57,52 @@ class CaptureGrid extends StatelessWidget {
         mainAxisSpacing: 8,
         childAspectRatio: 0.82,
       ),
-      itemCount: captures.length,
+      itemCount: widget.captures.length,
       itemBuilder: (BuildContext context, int index) {
-        final Capture capture = captures[index];
-        final Uint8List? bytes = imagesById[capture.id];
+        final Capture capture = widget.captures[index];
+        final Future<Uint8List> imageFuture = _imageFutures.putIfAbsent(
+          capture.id,
+          () => widget.onLoadImage(capture.id),
+        );
         return Card(
           clipBehavior: Clip.antiAlias,
           child: InkWell(
-            onTap: () => onOpen(capture),
+            onTap: () => widget.onOpen(capture),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Align(
                   alignment: Alignment.centerRight,
                   child: Checkbox(
-                    value: selectedCaptureIds.contains(capture.id),
-                    onChanged: (_) => onToggleSelection(capture.id),
+                    value: widget.selectedCaptureIds.contains(capture.id),
+                    onChanged: (_) => widget.onToggleSelection(capture.id),
                   ),
                 ),
                 Expanded(
-                  child: bytes == null
-                      ? const Center(child: Icon(Icons.broken_image_outlined))
-                      : Image.memory(
-                          bytes,
-                          width: double.infinity,
-                          fit: BoxFit.cover,
-                        ),
+                  child: FutureBuilder<Uint8List>(
+                    future: imageFuture,
+                    builder:
+                        (
+                          BuildContext context,
+                          AsyncSnapshot<Uint8List> snapshot,
+                        ) {
+                          if (snapshot.hasError) {
+                            return const Center(
+                              child: Icon(Icons.broken_image_outlined),
+                            );
+                          }
+                          if (!snapshot.hasData) {
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          }
+                          return Image.memory(
+                            snapshot.requireData,
+                            width: double.infinity,
+                            fit: BoxFit.cover,
+                          );
+                        },
+                  ),
                 ),
                 Padding(
                   padding: const EdgeInsets.all(8),

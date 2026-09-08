@@ -21,6 +21,7 @@ class DatasetPage extends StatefulWidget {
 
 class _DatasetPageState extends State<DatasetPage> {
   final TextEditingController _blockFilterController = TextEditingController();
+  final TextEditingController _floorFilterController = TextEditingController();
   DateTime? _fromDate;
   DateTime? _toDate;
   bool _isEditing = false;
@@ -34,6 +35,7 @@ class _DatasetPageState extends State<DatasetPage> {
   @override
   void dispose() {
     _blockFilterController.dispose();
+    _floorFilterController.dispose();
     widget.controller.dispose();
     super.dispose();
   }
@@ -51,9 +53,11 @@ class _DatasetPageState extends State<DatasetPage> {
             children: <Widget>[
               DatasetFilterPanel(
                 blockController: _blockFilterController,
+                floorController: _floorFilterController,
                 fromDate: _fromDate,
                 toDate: _toDate,
                 onBlockChanged: (_) => _applyFilter(),
+                onFloorChanged: (_) => _applyFilter(),
                 onSelectFromDate: () => _selectDate(isFromDate: true),
                 onSelectToDate: () => _selectDate(isFromDate: false),
                 onClear: _clearFilters,
@@ -79,7 +83,7 @@ class _DatasetPageState extends State<DatasetPage> {
                   ),
                 CaptureGrid(
                   captures: state.filteredCaptures,
-                  imagesById: state.imageBytesById,
+                  onLoadImage: widget.controller.readCaptureImage,
                   selectedCaptureIds: state.selectedCaptureIds,
                   onOpen: (Capture capture) {
                     setState(() => _isEditing = false);
@@ -116,6 +120,7 @@ class _DatasetPageState extends State<DatasetPage> {
     widget.controller.applyFilter(
       CaptureFilter(
         blockQuery: _blockFilterController.text,
+        floor: int.tryParse(_floorFilterController.text.trim()),
         fromDate: _fromDate,
         toDate: _toDate,
       ),
@@ -150,6 +155,7 @@ class _DatasetPageState extends State<DatasetPage> {
   void _clearFilters() {
     setState(() {
       _blockFilterController.clear();
+      _floorFilterController.clear();
       _fromDate = null;
       _toDate = null;
     });

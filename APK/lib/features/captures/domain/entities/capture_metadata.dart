@@ -52,6 +52,7 @@ class CaptureMetadata {
     required this.author,
     required this.sessionId,
     required this.status,
+    this.floor,
     this.compassHeadingDegrees,
     this.compassDirection,
   });
@@ -63,6 +64,7 @@ class CaptureMetadata {
   final String author;
   final String sessionId;
   final MetadataStatus status;
+  final int? floor;
   final double? compassHeadingDegrees;
   final String? compassDirection;
 
@@ -86,6 +88,7 @@ class CaptureMetadata {
     String? author,
     String? sessionId,
     MetadataStatus? status,
+    int? floor,
     double? compassHeadingDegrees,
     String? compassDirection,
   }) {
@@ -97,6 +100,7 @@ class CaptureMetadata {
       author: author ?? this.author,
       sessionId: sessionId ?? this.sessionId,
       status: status ?? this.status,
+      floor: floor ?? this.floor,
       compassHeadingDegrees:
           compassHeadingDegrees ?? this.compassHeadingDegrees,
       compassDirection: compassDirection ?? this.compassDirection,
@@ -114,6 +118,7 @@ class CaptureMetadata {
       'author': author,
       'sessionId': sessionId,
       'status': status.name,
+      'floor': floor,
       'compassHeadingDegrees': compassHeadingDegrees,
       'compassDirection': compassDirection,
     };
@@ -127,6 +132,8 @@ class CaptureMetadata {
         : <String, Object?>{};
     final double? heading = (json['compassHeadingDegrees'] as num?)?.toDouble();
     final String? storedDirection = json['compassDirection'] as String?;
+    final Object? rawFloor = json['floor'];
+    final int? floor = rawFloor is num ? rawFloor.toInt() : null;
 
     return CaptureMetadata(
       block: json['block'] as String? ?? '',
@@ -138,6 +145,7 @@ class CaptureMetadata {
       author: json['author'] as String? ?? '',
       sessionId: json['sessionId'] as String? ?? '',
       status: MetadataStatus.fromName(json['status'] as String?),
+      floor: floor,
       compassHeadingDegrees: heading,
       compassDirection:
           storedDirection ??

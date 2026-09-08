@@ -21,6 +21,7 @@ class NewCaptureMetadata {
     required this.longitude,
     required this.author,
     required this.status,
+    required this.floor,
   });
 
   final String block;
@@ -28,6 +29,7 @@ class NewCaptureMetadata {
   final double longitude;
   final String author;
   final MetadataStatus status;
+  final int? floor;
 }
 
 class CaptureController extends ChangeNotifier {
@@ -262,6 +264,7 @@ class CaptureController extends ChangeNotifier {
           author: input.author.trim(),
           sessionId: _sessionId,
           status: input.status,
+          floor: input.floor,
           compassHeadingDegrees: heading,
           compassDirection: heading == null
               ? null

@@ -9,6 +9,7 @@ class CaptureFormData {
     required this.longitude,
     required this.author,
     required this.status,
+    required this.floor,
   });
 
   final String block;
@@ -16,6 +17,7 @@ class CaptureFormData {
   final double longitude;
   final String author;
   final MetadataStatus status;
+  final int? floor;
 }
 
 class CaptureForm extends StatefulWidget {
@@ -40,6 +42,7 @@ class CaptureFormState extends State<CaptureForm> {
   final TextEditingController _longitudeController = TextEditingController();
   final TextEditingController _authorController = TextEditingController();
   CampusZone? _zone;
+  final TextEditingController _floorController = TextEditingController();
   MetadataStatus _status = MetadataStatus.pending;
 
   CaptureFormData? validateAndRead() {
@@ -52,6 +55,7 @@ class CaptureFormState extends State<CaptureForm> {
       longitude: double.parse(_longitudeController.text.trim()),
       author: _authorController.text.trim(),
       status: _status,
+      floor: int.tryParse(_floorController.text.trim()),
     );
   }
 
@@ -65,6 +69,7 @@ class CaptureFormState extends State<CaptureForm> {
     _latitudeController.clear();
     _longitudeController.clear();
     _authorController.clear();
+    _floorController.clear();
     setState(() => _status = MetadataStatus.pending);
   }
 
@@ -73,6 +78,7 @@ class CaptureFormState extends State<CaptureForm> {
     _latitudeController.dispose();
     _longitudeController.dispose();
     _authorController.dispose();
+    _floorController.dispose();
     super.dispose();
   }
 
@@ -168,6 +174,16 @@ class CaptureFormState extends State<CaptureForm> {
             validator: (String? value) => _required(value, 'El recolector'),
           ),
           const SizedBox(height: 12),
+          TextFormField(
+            controller: _floorController,
+            decoration: const InputDecoration(
+              labelText: 'Piso',
+              border: OutlineInputBorder(),
+            ),
+            keyboardType: TextInputType.number,
+            validator: (String? value) => _integer(value, 'El piso'),
+          ),
+          const SizedBox(height: 12),
           DropdownButtonFormField<MetadataStatus>(
             initialValue: _status,
             decoration: const InputDecoration(
@@ -222,5 +238,14 @@ class CaptureFormState extends State<CaptureForm> {
       return '$label debe estar entre $minimum y $maximum.';
     }
     return null;
+  }
+
+  String? _integer(String? value, String label) {
+    if (value == null || value.trim().isEmpty) {
+      return null;
+    }
+    return int.tryParse(value.trim()) == null
+        ? '$label debe ser entero.'
+        : null;
   }
 }
