@@ -1,9 +1,15 @@
 import '../entities/capture.dart';
 
 class CaptureFilter {
-  const CaptureFilter({this.blockQuery = '', this.fromDate, this.toDate});
+  const CaptureFilter({
+    this.blockQuery = '',
+    this.floor,
+    this.fromDate,
+    this.toDate,
+  });
 
   final String blockQuery;
+  final int? floor;
   final DateTime? fromDate;
   final DateTime? toDate;
 }
@@ -33,13 +39,15 @@ class FilterCaptures {
           final bool matchesBlock =
               normalizedBlock.isEmpty ||
               capture.metadata.block.toLowerCase().contains(normalizedBlock);
+          final bool matchesFloor =
+              filter.floor == null || capture.metadata.floor == filter.floor;
           final bool matchesStart =
               inclusiveStart == null ||
               !capture.metadata.timestamp.isBefore(inclusiveStart);
           final bool matchesEnd =
               exclusiveEnd == null ||
               capture.metadata.timestamp.isBefore(exclusiveEnd);
-          return matchesBlock && matchesStart && matchesEnd;
+          return matchesBlock && matchesFloor && matchesStart && matchesEnd;
         })
         .toList(growable: false);
   }

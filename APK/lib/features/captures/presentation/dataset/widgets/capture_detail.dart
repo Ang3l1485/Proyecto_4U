@@ -26,6 +26,7 @@ class CaptureDetail extends StatelessWidget {
             Text('Detalle', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             Text('Bloque: ${capture.metadata.block}'),
+            Text('Piso: ${capture.metadata.floor ?? 'no disponible'}'),
             Text('Latitud: ${capture.metadata.latitude}'),
             Text('Longitud: ${capture.metadata.longitude}'),
             Text('Recolector: ${capture.metadata.author}'),

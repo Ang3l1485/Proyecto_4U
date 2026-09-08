@@ -24,6 +24,7 @@ void main() {
           longitude: -73,
           author: 'Nuevo autor',
           status: MetadataStatus.complete,
+          floor: 2,
         ),
       );
 

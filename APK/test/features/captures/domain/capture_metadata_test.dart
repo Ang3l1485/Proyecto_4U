@@ -15,6 +15,22 @@ void main() {
     expect(CampusZone.fromBlock('bloque38'), CampusZone.bloque38);
   });
 
+  test('copyWith can clear floor or preserve it when omitted', () {
+    final CaptureMetadata metadata = CaptureMetadata(
+      block: 'Biblioteca',
+      latitude: 4,
+      longitude: -74,
+      timestamp: DateTime(2026),
+      author: 'Ana',
+      sessionId: 'session-1',
+      status: MetadataStatus.complete,
+      floor: 3,
+    );
+
+    expect(metadata.copyWith().floor, 3);
+    expect(metadata.copyWith(floor: null).floor, isNull);
+  });
+
   test('serializes and deserializes all active metadata fields', () {
     final CaptureMetadata original = CaptureMetadata(
       block: 'B-12',
@@ -38,11 +54,12 @@ void main() {
     expect(restored.author, original.author);
     expect(restored.sessionId, original.sessionId);
     expect(restored.status, MetadataStatus.complete);
+    expect(restored.floor, isNull);
     expect(restored.compassHeadingDegrees, 91.5);
     expect(restored.compassDirection, 'E');
     expect(json, isNot(contains('zone')));
     expect(json, isNot(contains('place')));
-    expect(json, isNot(contains('floor')));
+    expect(json, containsPair('floor', isNull));
   });
 
   test('reads legacy JSON while ignoring retired location fields', () {

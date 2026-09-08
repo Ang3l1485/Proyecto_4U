@@ -158,6 +158,7 @@ class _CapturePageState extends State<CapturePage> {
         longitude: formData.longitude,
         author: formData.author,
         status: formData.status,
+        floor: formData.floor,
       ),
       allowQualityOverride: allowQualityOverride,
     );
