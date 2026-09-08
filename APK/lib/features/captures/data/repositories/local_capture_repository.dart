@@ -133,17 +133,34 @@ class LocalCaptureRepository implements CaptureRepository {
     final List<Capture> removed = captures
         .where((Capture capture) => captureIds.contains(capture.id))
         .toList(growable: false);
-    final List<Capture> remaining = captures
-        .where((Capture capture) => !captureIds.contains(capture.id))
-        .toList(growable: false);
+    final Set<String> deletedCaptureIds = <String>{};
+    final List<String> failedCaptureIds = <String>[];
+    Object? firstFailure;
 
-    await _manifestStore.writeCaptures(remaining);
     for (final Capture capture in removed) {
-      await _fileStore.deleteCaptureFiles(
-        CapturePaths(
-          imagePath: capture.imagePath,
-          metadataPath: capture.metadataPath,
-        ),
+      try {
+        await _fileStore.deleteCaptureFiles(
+          CapturePaths(
+            imagePath: capture.imagePath,
+            metadataPath: capture.metadataPath,
+          ),
+        );
+        deletedCaptureIds.add(capture.id);
+      } catch (error) {
+        failedCaptureIds.add(capture.id);
+        firstFailure ??= error;
+      }
+    }
+
+    final List<Capture> remaining = captures
+        .where((Capture capture) => !deletedCaptureIds.contains(capture.id))
+        .toList(growable: false);
+    await _manifestStore.writeCaptures(remaining);
+
+    if (failedCaptureIds.isNotEmpty) {
+      throw CaptureStorageException(
+        'No fue posible eliminar las capturas: ${failedCaptureIds.join(', ')}.',
+        firstFailure,
       );
     }
   }
