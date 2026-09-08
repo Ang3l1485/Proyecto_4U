@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:dataset_app/core/errors/capture_storage_exception.dart';
 import 'package:dataset_app/features/captures/data/repositories/local_capture_repository.dart';
+import 'package:dataset_app/features/captures/data/sources/atomic_file_writer.dart';
 import 'package:dataset_app/features/captures/data/sources/capture_file_store.dart';
 import 'package:dataset_app/features/captures/data/sources/exif_metadata_writer.dart';
 import 'package:dataset_app/features/captures/data/sources/manifest_store.dart';
@@ -68,6 +69,76 @@ void main() {
       throwsA(isA<CaptureStorageException>()),
     );
     expect(await manifest.readAsString(), '{not-json');
+  });
+
+  test('updates metadata without writing the physical image', () async {
+    final Capture created = await repository.createCapture(
+      CreateCaptureRequest(
+        imageBytes: _jpegBytes(),
+        metadata: _metadata(),
+        quality: _quality(),
+        wasQualityOverride: false,
+      ),
+    );
+    final List<int> originalImageBytes = await File(
+      created.imagePath,
+    ).readAsBytes();
+    final _TrackingCaptureFileStore fileStore = _TrackingCaptureFileStore(
+      datasetDirectory: testDirectory,
+    );
+    final LocalCaptureRepository trackingRepository = LocalCaptureRepository(
+      fileStore: fileStore,
+      manifestStore: ManifestStore(datasetDirectory: testDirectory),
+      exifMetadataWriter: const ExifMetadataWriter(),
+    );
+
+    await trackingRepository.updateCaptureMetadata(
+      created.id,
+      created.metadata.copyWith(author: 'Autora editada'),
+    );
+
+    expect(fileStore.writeImageCallCount, 0);
+    expect(await File(created.imagePath).readAsBytes(), originalImageBytes);
+  });
+
+  test('rolls back JSON without touching the image when manifest write fails',
+      () async {
+    final Capture created = await repository.createCapture(
+      CreateCaptureRequest(
+        imageBytes: _jpegBytes(),
+        metadata: _metadata(),
+        quality: _quality(),
+        wasQualityOverride: false,
+      ),
+    );
+    final List<int> originalImageBytes = await File(
+      created.imagePath,
+    ).readAsBytes();
+    final _TrackingCaptureFileStore fileStore = _TrackingCaptureFileStore(
+      datasetDirectory: testDirectory,
+    );
+    final ManifestStore manifestStore = ManifestStore(
+      datasetDirectory: testDirectory,
+      atomicFileWriter: const _FailingManifestWriter(),
+    );
+    final LocalCaptureRepository failingRepository = LocalCaptureRepository(
+      fileStore: fileStore,
+      manifestStore: manifestStore,
+      exifMetadataWriter: const ExifMetadataWriter(),
+    );
+
+    await expectLater(
+      failingRepository.updateCaptureMetadata(
+        created.id,
+        created.metadata.copyWith(author: 'No debe persistir'),
+      ),
+      throwsA(isA<CaptureStorageException>()),
+    );
+
+    expect(fileStore.writeImageCallCount, 0);
+    expect(await File(created.imagePath).readAsBytes(), originalImageBytes);
+    final List<Capture> restoredCaptures = await manifestStore.readCaptures();
+    expect(restoredCaptures.single.metadata.author, created.metadata.author);
   });
 
   test('omits records whose image file is missing', () async {
@@ -178,6 +249,30 @@ class _MockCaptureFileStore extends CaptureFileStore {
   Future<void> deleteCaptureFiles(CapturePaths paths) async {
     deleteCallCount++;
     throw failure;
+  }
+}
+
+class _TrackingCaptureFileStore extends CaptureFileStore {
+  _TrackingCaptureFileStore({required super.datasetDirectory});
+
+  int writeImageCallCount = 0;
+
+  @override
+  Future<void> writeImage(String imagePath, Uint8List bytes) async {
+    writeImageCallCount++;
+    await super.writeImage(imagePath, bytes);
+  }
+}
+
+class _FailingManifestWriter extends AtomicFileWriter {
+  const _FailingManifestWriter();
+
+  @override
+  Future<void> writeBytes(File target, Uint8List bytes) {
+    if (target.path.endsWith('manifest.json')) {
+      throw StateError('manifest write failed');
+    }
+    return super.writeBytes(target, bytes);
   }
 }
 

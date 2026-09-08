@@ -103,22 +103,13 @@ class LocalCaptureRepository implements CaptureRepository {
 
     final Capture original = captures[index];
     final Capture updated = original.copyWith(metadata: metadata);
-    final Uint8List originalImage = await _fileStore.readImage(
-      original.imagePath,
-    );
-    final Uint8List updatedImage = _exifMetadataWriter.writeMetadata(
-      originalImage,
-      metadata,
-    );
 
     try {
-      await _fileStore.writeImage(updated.imagePath, updatedImage);
       await _fileStore.writeMetadata(updated.metadataPath, updated.toJson());
       captures[index] = updated;
       await _manifestStore.writeCaptures(captures);
       return updated;
     } catch (error) {
-      await _fileStore.writeImage(original.imagePath, originalImage);
       await _fileStore.writeMetadata(original.metadataPath, original.toJson());
       throw CaptureStorageException(
         'No fue posible actualizar la captura $captureId.',
