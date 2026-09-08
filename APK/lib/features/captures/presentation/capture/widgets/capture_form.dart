@@ -36,10 +36,10 @@ class CaptureForm extends StatefulWidget {
 
 class CaptureFormState extends State<CaptureForm> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-  final TextEditingController _blockController = TextEditingController();
   final TextEditingController _latitudeController = TextEditingController();
   final TextEditingController _longitudeController = TextEditingController();
   final TextEditingController _authorController = TextEditingController();
+  CampusZone? _zone;
   MetadataStatus _status = MetadataStatus.pending;
 
   CaptureFormData? validateAndRead() {
@@ -47,7 +47,7 @@ class CaptureFormState extends State<CaptureForm> {
       return null;
     }
     return CaptureFormData(
-      block: _blockController.text.trim(),
+      block: _zone!.persistedValue,
       latitude: double.parse(_latitudeController.text.trim()),
       longitude: double.parse(_longitudeController.text.trim()),
       author: _authorController.text.trim(),
@@ -61,7 +61,7 @@ class CaptureFormState extends State<CaptureForm> {
   }
 
   void clearAfterSave() {
-    _blockController.clear();
+    _zone = null;
     _latitudeController.clear();
     _longitudeController.clear();
     _authorController.clear();
@@ -70,7 +70,6 @@ class CaptureFormState extends State<CaptureForm> {
 
   @override
   void dispose() {
-    _blockController.dispose();
     _latitudeController.dispose();
     _longitudeController.dispose();
     _authorController.dispose();
@@ -83,13 +82,25 @@ class CaptureFormState extends State<CaptureForm> {
       key: _formKey,
       child: Column(
         children: <Widget>[
-          TextFormField(
-            controller: _blockController,
+          DropdownButtonFormField<CampusZone>(
+            initialValue: _zone,
             decoration: const InputDecoration(
-              labelText: 'Bloque',
+              labelText: 'Lugar',
               border: OutlineInputBorder(),
             ),
-            validator: (String? value) => _required(value, 'El bloque'),
+            items: CampusZone.values
+                .map(
+                  (CampusZone zone) => DropdownMenuItem<CampusZone>(
+                    value: zone,
+                    child: Text(zone.label),
+                  ),
+                )
+                .toList(growable: false),
+            validator: (CampusZone? value) =>
+                value == null ? 'El lugar es obligatorio.' : null,
+            onChanged: (CampusZone? value) {
+              setState(() => _zone = value);
+            },
           ),
           const SizedBox(height: 12),
           Row(

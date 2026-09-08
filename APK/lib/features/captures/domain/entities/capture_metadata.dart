@@ -10,6 +10,39 @@ enum MetadataStatus {
   }
 }
 
+enum CampusZone {
+  bloque32,
+  bloque38;
+
+  String get persistedValue {
+    switch (this) {
+      case CampusZone.bloque32:
+        return 'Biblioteca';
+      case CampusZone.bloque38:
+        return 'bloque38';
+    }
+  }
+
+  String get label {
+    switch (this) {
+      case CampusZone.bloque32:
+        return 'Biblioteca';
+      case CampusZone.bloque38:
+        return 'Bloque 38';
+    }
+  }
+
+  static CampusZone? fromBlock(String block) {
+    for (final CampusZone zone in values) {
+      if (zone.persistedValue == block ||
+          (zone == CampusZone.bloque32 && block == zone.name)) {
+        return zone;
+      }
+    }
+    return null;
+  }
+}
+
 class CaptureMetadata {
   const CaptureMetadata({
     required this.block,
