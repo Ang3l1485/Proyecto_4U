@@ -63,7 +63,7 @@ class CompositionRoot {
   /// Resuelve la carpeta donde se guarda el dataset (imágenes + JSON).
   ///
   /// En Android usamos almacenamiento externo específico de la app
-  /// (Android/data/<paquete>/files/captures), que es visible con
+  /// (`Android/data/<paquete>/files/captures`), que es visible con
   /// cualquier explorador de archivos sin pedir permisos adicionales.
   /// Así, una vez que una captura pasa el filtro de calidad y se
   /// guarda, queda disponible automáticamente en una carpeta que se
