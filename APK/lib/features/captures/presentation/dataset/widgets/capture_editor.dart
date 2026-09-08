@@ -24,17 +24,18 @@ class CaptureEditor extends StatefulWidget {
 
 class _CaptureEditorState extends State<CaptureEditor> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-  late final TextEditingController _blockController;
   late final TextEditingController _latitudeController;
   late final TextEditingController _longitudeController;
   late final TextEditingController _authorController;
+  CampusZone? _zone;
+  late final TextEditingController _floorController;
   late MetadataStatus _status;
 
   @override
   void initState() {
     super.initState();
     final CaptureMetadata metadata = widget.capture.metadata;
-    _blockController = TextEditingController(text: metadata.block);
+    _zone = CampusZone.fromBlock(metadata.block);
     _latitudeController = TextEditingController(
       text: metadata.latitude.toString(),
     );
@@ -42,15 +43,18 @@ class _CaptureEditorState extends State<CaptureEditor> {
       text: metadata.longitude.toString(),
     );
     _authorController = TextEditingController(text: metadata.author);
+    _floorController = TextEditingController(
+      text: metadata.floor?.toString() ?? '',
+    );
     _status = metadata.status;
   }
 
   @override
   void dispose() {
-    _blockController.dispose();
     _latitudeController.dispose();
     _longitudeController.dispose();
     _authorController.dispose();
+    _floorController.dispose();
     super.dispose();
   }
 
@@ -68,10 +72,22 @@ class _CaptureEditorState extends State<CaptureEditor> {
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 12),
-              TextFormField(
-                controller: _blockController,
-                decoration: const InputDecoration(labelText: 'Bloque'),
-                validator: _required,
+              DropdownButtonFormField<CampusZone>(
+                initialValue: _zone,
+                decoration: const InputDecoration(labelText: 'Lugar'),
+                items: CampusZone.values
+                    .map(
+                      (CampusZone zone) => DropdownMenuItem<CampusZone>(
+                        value: zone,
+                        child: Text(zone.label),
+                      ),
+                    )
+                    .toList(growable: false),
+                validator: (CampusZone? value) =>
+                    value == null ? 'Campo obligatorio.' : null,
+                onChanged: (CampusZone? value) {
+                  setState(() => _zone = value);
+                },
               ),
               TextFormField(
                 controller: _latitudeController,
@@ -87,6 +103,12 @@ class _CaptureEditorState extends State<CaptureEditor> {
                 controller: _authorController,
                 decoration: const InputDecoration(labelText: 'Recolector'),
                 validator: _required,
+              ),
+              TextFormField(
+                controller: _floorController,
+                decoration: const InputDecoration(labelText: 'Piso'),
+                keyboardType: TextInputType.number,
+                validator: (String? value) => _integer(value, 'El piso'),
               ),
               const SizedBox(height: 8),
               DropdownButtonFormField<MetadataStatus>(
@@ -133,11 +155,12 @@ class _CaptureEditorState extends State<CaptureEditor> {
     }
     widget.onSave(
       CaptureMetadataChanges(
-        block: _blockController.text,
+        block: _zone!.persistedValue,
         latitude: double.parse(_latitudeController.text),
         longitude: double.parse(_longitudeController.text),
         author: _authorController.text,
         status: _status,
+        floor: int.tryParse(_floorController.text.trim()),
       ),
     );
   }
@@ -153,6 +176,15 @@ class _CaptureEditorState extends State<CaptureEditor> {
     }
     return coordinate < minimum || coordinate > maximum
         ? 'Debe estar entre $minimum y $maximum.'
+        : null;
+  }
+
+  String? _integer(String? value, String label) {
+    if (value == null || value.trim().isEmpty) {
+      return null;
+    }
+    return int.tryParse(value.trim()) == null
+        ? '$label debe ser entero.'
         : null;
   }
 }

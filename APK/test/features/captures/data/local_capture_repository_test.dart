@@ -84,42 +84,92 @@ void main() {
     expect(await repository.listCaptures(), isEmpty);
   });
 
-  test('preserves a capture in the manifest when file deletion fails', () async {
-    final Capture capture = Capture(
-      id: 'capture-to-keep',
-      imagePath: '${testDirectory.path}/images/capture-to-keep.jpg',
-      metadataPath: '${testDirectory.path}/metadata/capture-to-keep.json',
-      metadata: _metadata(),
-      quality: _quality(),
-      wasQualityOverride: false,
+  test(
+    'preserves a capture in the manifest when file deletion fails',
+    () async {
+      final Capture capture = Capture(
+        id: 'capture-to-keep',
+        imagePath: '${testDirectory.path}/images/capture-to-keep.jpg',
+        metadataPath: '${testDirectory.path}/metadata/capture-to-keep.json',
+        metadata: _metadata(),
+        quality: _quality(),
+        wasQualityOverride: false,
+      );
+      final ManifestStore manifestStore = ManifestStore(
+        datasetDirectory: testDirectory,
+      );
+      await manifestStore.writeCaptures(<Capture>[capture]);
+      final _MockCaptureFileStore fileStore = _MockCaptureFileStore(
+        datasetDirectory: testDirectory,
+        failure: StateError('delete failed'),
+      );
+      final LocalCaptureRepository failingRepository = LocalCaptureRepository(
+        fileStore: fileStore,
+        manifestStore: manifestStore,
+        exifMetadataWriter: const ExifMetadataWriter(),
+      );
+
+      await expectLater(
+        failingRepository.deleteCaptures(<String>{capture.id}),
+        throwsA(isA<CaptureStorageException>()),
+      );
+
+      final List<Capture> manifestCaptures = await manifestStore.readCaptures();
+      expect(
+        manifestCaptures.map((Capture item) => item.id),
+        contains(capture.id),
+      );
+      expect(fileStore.deleteCallCount, 1);
+    },
+  );
+
+  test('persists the catalog values for new campus zones', () async {
+    final Capture biblioteca = await repository.createCapture(
+      CreateCaptureRequest(
+        imageBytes: _jpegBytes(),
+        metadata: _metadata(
+          block: CampusZone.bloque32.persistedValue,
+          timestamp: DateTime(2026, 8, 23, 10, 1),
+        ),
+        quality: _quality(),
+        wasQualityOverride: false,
+      ),
     );
-    final ManifestStore manifestStore = ManifestStore(
-      datasetDirectory: testDirectory,
-    );
-    await manifestStore.writeCaptures(<Capture>[capture]);
-    final _MockCaptureFileStore fileStore = _MockCaptureFileStore(
-      datasetDirectory: testDirectory,
-      failure: StateError('delete failed'),
-    );
-    final LocalCaptureRepository failingRepository = LocalCaptureRepository(
-      fileStore: fileStore,
-      manifestStore: manifestStore,
-      exifMetadataWriter: const ExifMetadataWriter(),
+    final Capture bloque38 = await repository.createCapture(
+      CreateCaptureRequest(
+        imageBytes: _jpegBytes(),
+        metadata: _metadata(
+          block: CampusZone.bloque38.persistedValue,
+          timestamp: DateTime(2026, 8, 23, 10, 2),
+        ),
+        quality: _quality(),
+        wasQualityOverride: false,
+      ),
     );
 
-    await expectLater(
-      failingRepository.deleteCaptures(<String>{capture.id}),
-      throwsA(isA<CaptureStorageException>()),
+    final List<Capture> captures = await repository.listCaptures();
+    expect(
+      captures
+          .firstWhere((Capture item) => item.id == biblioteca.id)
+          .metadata
+          .block,
+      'Biblioteca',
     );
-
-    final List<Capture> manifestCaptures = await manifestStore.readCaptures();
-    expect(manifestCaptures.map((Capture item) => item.id), contains(capture.id));
-    expect(fileStore.deleteCallCount, 1);
+    expect(
+      captures
+          .firstWhere((Capture item) => item.id == bloque38.id)
+          .metadata
+          .block,
+      'bloque38',
+    );
   });
 }
 
 class _MockCaptureFileStore extends CaptureFileStore {
-  _MockCaptureFileStore({required super.datasetDirectory, required this.failure});
+  _MockCaptureFileStore({
+    required super.datasetDirectory,
+    required this.failure,
+  });
 
   final Object failure;
   int deleteCallCount = 0;
@@ -141,12 +191,12 @@ Uint8List _jpegBytes() {
   return Uint8List.fromList(image.encodeJpg(source));
 }
 
-CaptureMetadata _metadata() {
+CaptureMetadata _metadata({String block = 'A', DateTime? timestamp}) {
   return CaptureMetadata(
-    block: 'A',
+    block: block,
     latitude: 4.635,
     longitude: -74.082,
-    timestamp: DateTime(2026, 8, 23, 10),
+    timestamp: timestamp ?? DateTime(2026, 8, 23, 10),
     author: 'Test',
     sessionId: 'session',
     status: MetadataStatus.complete,

@@ -9,6 +9,7 @@ class CaptureFormData {
     required this.longitude,
     required this.author,
     required this.status,
+    required this.floor,
   });
 
   final String block;
@@ -16,6 +17,7 @@ class CaptureFormData {
   final double longitude;
   final String author;
   final MetadataStatus status;
+  final int? floor;
 }
 
 class CaptureForm extends StatefulWidget {
@@ -36,10 +38,11 @@ class CaptureForm extends StatefulWidget {
 
 class CaptureFormState extends State<CaptureForm> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-  final TextEditingController _blockController = TextEditingController();
   final TextEditingController _latitudeController = TextEditingController();
   final TextEditingController _longitudeController = TextEditingController();
   final TextEditingController _authorController = TextEditingController();
+  CampusZone? _zone;
+  final TextEditingController _floorController = TextEditingController();
   MetadataStatus _status = MetadataStatus.pending;
 
   CaptureFormData? validateAndRead() {
@@ -47,11 +50,12 @@ class CaptureFormState extends State<CaptureForm> {
       return null;
     }
     return CaptureFormData(
-      block: _blockController.text.trim(),
+      block: _zone!.persistedValue,
       latitude: double.parse(_latitudeController.text.trim()),
       longitude: double.parse(_longitudeController.text.trim()),
       author: _authorController.text.trim(),
       status: _status,
+      floor: int.tryParse(_floorController.text.trim()),
     );
   }
 
@@ -61,19 +65,20 @@ class CaptureFormState extends State<CaptureForm> {
   }
 
   void clearAfterSave() {
-    _blockController.clear();
+    _zone = null;
     _latitudeController.clear();
     _longitudeController.clear();
     _authorController.clear();
+    _floorController.clear();
     setState(() => _status = MetadataStatus.pending);
   }
 
   @override
   void dispose() {
-    _blockController.dispose();
     _latitudeController.dispose();
     _longitudeController.dispose();
     _authorController.dispose();
+    _floorController.dispose();
     super.dispose();
   }
 
@@ -83,13 +88,25 @@ class CaptureFormState extends State<CaptureForm> {
       key: _formKey,
       child: Column(
         children: <Widget>[
-          TextFormField(
-            controller: _blockController,
+          DropdownButtonFormField<CampusZone>(
+            initialValue: _zone,
             decoration: const InputDecoration(
-              labelText: 'Bloque',
+              labelText: 'Lugar',
               border: OutlineInputBorder(),
             ),
-            validator: (String? value) => _required(value, 'El bloque'),
+            items: CampusZone.values
+                .map(
+                  (CampusZone zone) => DropdownMenuItem<CampusZone>(
+                    value: zone,
+                    child: Text(zone.label),
+                  ),
+                )
+                .toList(growable: false),
+            validator: (CampusZone? value) =>
+                value == null ? 'El lugar es obligatorio.' : null,
+            onChanged: (CampusZone? value) {
+              setState(() => _zone = value);
+            },
           ),
           const SizedBox(height: 12),
           Row(
@@ -157,6 +174,16 @@ class CaptureFormState extends State<CaptureForm> {
             validator: (String? value) => _required(value, 'El recolector'),
           ),
           const SizedBox(height: 12),
+          TextFormField(
+            controller: _floorController,
+            decoration: const InputDecoration(
+              labelText: 'Piso',
+              border: OutlineInputBorder(),
+            ),
+            keyboardType: TextInputType.number,
+            validator: (String? value) => _integer(value, 'El piso'),
+          ),
+          const SizedBox(height: 12),
           DropdownButtonFormField<MetadataStatus>(
             initialValue: _status,
             decoration: const InputDecoration(
@@ -211,5 +238,14 @@ class CaptureFormState extends State<CaptureForm> {
       return '$label debe estar entre $minimum y $maximum.';
     }
     return null;
+  }
+
+  String? _integer(String? value, String label) {
+    if (value == null || value.trim().isEmpty) {
+      return null;
+    }
+    return int.tryParse(value.trim()) == null
+        ? '$label debe ser entero.'
+        : null;
   }
 }

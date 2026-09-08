@@ -10,6 +10,7 @@ class CaptureMetadataChanges {
     required this.longitude,
     required this.author,
     required this.status,
+    required this.floor,
   });
 
   final String block;
@@ -17,6 +18,7 @@ class CaptureMetadataChanges {
   final double longitude;
   final String author;
   final MetadataStatus status;
+  final int? floor;
 }
 
 class UpdateCaptureMetadata {
@@ -34,6 +36,7 @@ class UpdateCaptureMetadata {
       longitude: changes.longitude,
       author: changes.author.trim(),
       status: changes.status,
+      floor: changes.floor,
     );
     validateCaptureMetadata(updatedMetadata);
     return _repository.updateCaptureMetadata(
