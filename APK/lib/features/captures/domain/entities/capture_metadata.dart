@@ -1,3 +1,5 @@
+const Object _floorSentinel = Object();
+
 enum MetadataStatus {
   pending,
   complete;
@@ -88,7 +90,7 @@ class CaptureMetadata {
     String? author,
     String? sessionId,
     MetadataStatus? status,
-    int? floor,
+    Object? floor = _floorSentinel,
     double? compassHeadingDegrees,
     String? compassDirection,
   }) {
@@ -100,7 +102,7 @@ class CaptureMetadata {
       author: author ?? this.author,
       sessionId: sessionId ?? this.sessionId,
       status: status ?? this.status,
-      floor: floor ?? this.floor,
+      floor: floor == _floorSentinel ? this.floor : floor as int?,
       compassHeadingDegrees:
           compassHeadingDegrees ?? this.compassHeadingDegrees,
       compassDirection: compassDirection ?? this.compassDirection,
