@@ -24,11 +24,7 @@ class CompositionRoot {
   const CompositionRoot();
 
   Future<Widget> buildApplication() async {
-    final Directory documentsDirectory =
-        await getApplicationDocumentsDirectory();
-    final Directory datasetDirectory = Directory(
-      '${documentsDirectory.path}${Platform.pathSeparator}captures',
-    );
+    final Directory datasetDirectory = await _resolveDatasetDirectory();
     final CaptureRepository repository = LocalCaptureRepository.inDirectory(
       datasetDirectory,
     );
@@ -61,6 +57,28 @@ class CompositionRoot {
     return DatasetApp(
       captureController: captureController,
       datasetController: datasetController,
+    );
+  }
+
+  /// Resuelve la carpeta donde se guarda el dataset (imágenes + JSON).
+  ///
+  /// En Android usamos almacenamiento externo específico de la app
+  /// (Android/data/<paquete>/files/captures), que es visible con
+  /// cualquier explorador de archivos sin pedir permisos adicionales.
+  /// Así, una vez que una captura pasa el filtro de calidad y se
+  /// guarda, queda disponible automáticamente en una carpeta que se
+  /// puede copiar/extraer del dispositivo, sin depender de un paso
+  /// manual de "descargar" o "compartir" cada archivo.
+  ///
+  /// En plataformas donde no existe almacenamiento externo (iOS,
+  /// escritorio), se usa el directorio de documentos de la app como
+  /// respaldo.
+  Future<Directory> _resolveDatasetDirectory() async {
+    final Directory? externalDirectory = await getExternalStorageDirectory();
+    final Directory baseDirectory =
+        externalDirectory ?? await getApplicationDocumentsDirectory();
+    return Directory(
+      '${baseDirectory.path}${Platform.pathSeparator}captures',
     );
   }
 }
