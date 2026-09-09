@@ -8,15 +8,19 @@ import '../../domain/repositories/capture_repository.dart';
 import '../sources/capture_file_store.dart';
 import '../sources/exif_metadata_writer.dart';
 import '../sources/manifest_store.dart';
+import '../../../../platform/storage/public_dataset_exporter.dart';
 
 class LocalCaptureRepository implements CaptureRepository {
   LocalCaptureRepository({
     required CaptureFileStore fileStore,
     required ManifestStore manifestStore,
     required ExifMetadataWriter exifMetadataWriter,
+    PublicDatasetExporter publicDatasetExporter =
+        const AndroidDownloadsDatasetExporter(),
   }) : _fileStore = fileStore,
        _manifestStore = manifestStore,
-       _exifMetadataWriter = exifMetadataWriter;
+       _exifMetadataWriter = exifMetadataWriter,
+       _publicDatasetExporter = publicDatasetExporter;
 
   factory LocalCaptureRepository.inDirectory(Directory datasetDirectory) {
     return LocalCaptureRepository(
@@ -29,6 +33,7 @@ class LocalCaptureRepository implements CaptureRepository {
   final CaptureFileStore _fileStore;
   final ManifestStore _manifestStore;
   final ExifMetadataWriter _exifMetadataWriter;
+  final PublicDatasetExporter _publicDatasetExporter;
 
   @override
   Future<Capture> createCapture(CreateCaptureRequest request) async {
@@ -51,6 +56,11 @@ class LocalCaptureRepository implements CaptureRepository {
       final List<Capture> captures = await _manifestStore.readCaptures();
       await _fileStore.writeImage(paths.imagePath, jpegBytes);
       await _fileStore.writeMetadata(paths.metadataPath, capture.toJson());
+      await _publicDatasetExporter.exportCapture(
+        captureId: captureId,
+        imageBytes: jpegBytes,
+        metadata: capture.toJson(),
+      );
       await _manifestStore.writeCaptures(<Capture>[...captures, capture]);
       return capture;
     } catch (error) {
@@ -106,6 +116,10 @@ class LocalCaptureRepository implements CaptureRepository {
 
     try {
       await _fileStore.writeMetadata(updated.metadataPath, updated.toJson());
+      await _publicDatasetExporter.exportMetadata(
+        captureId: captureId,
+        metadata: updated.toJson(),
+      );
       captures[index] = updated;
       await _manifestStore.writeCaptures(captures);
       return updated;
@@ -130,6 +144,7 @@ class LocalCaptureRepository implements CaptureRepository {
 
     for (final Capture capture in removed) {
       try {
+        await _publicDatasetExporter.deleteCapture(capture.id);
         await _fileStore.deleteCaptureFiles(
           CapturePaths(
             imagePath: capture.imagePath,

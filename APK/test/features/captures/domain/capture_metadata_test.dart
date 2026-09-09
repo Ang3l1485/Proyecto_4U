@@ -57,6 +57,14 @@ void main() {
     expect(restored.floor, isNull);
     expect(restored.compassHeadingDegrees, 91.5);
     expect(restored.compassDirection, 'E');
+    expect(restored.pointId, isNull);
+    expect(restored.referenceLatitude, isNull);
+    expect(restored.referenceLongitude, isNull);
+    expect(json['pointId'], isNull);
+    expect(json['coordinates'], <String, Object?>{
+      'gps': <String, double>{'latitude': 4.6351, 'longitude': -74.0823},
+      'reference': <String, double?>{'latitude': null, 'longitude': null},
+    });
     expect(json, isNot(contains('zone')));
     expect(json, isNot(contains('place')));
     expect(json, containsPair('floor', isNull));
@@ -78,5 +86,26 @@ void main() {
 
     expect(metadata.block, 'A');
     expect(metadata.compassDirection, 'SW');
+  });
+
+  test('reads reference coordinates and point ID from the dataset schema', () {
+    final CaptureMetadata metadata = CaptureMetadata.fromJson(<String, Object?>{
+      'pointId': 'point-12',
+      'block': 'A',
+      'coordinates': <String, Object?>{
+        'gps': <String, double>{'latitude': 1, 'longitude': 2},
+        'reference': <String, double>{'latitude': 3, 'longitude': 4},
+      },
+      'timestamp': '2026-08-23T10:00:00',
+      'author': 'Luis',
+      'sessionId': 'session',
+      'status': 'pending',
+    });
+
+    expect(metadata.latitude, 1);
+    expect(metadata.longitude, 2);
+    expect(metadata.referenceLatitude, 3);
+    expect(metadata.referenceLongitude, 4);
+    expect(metadata.pointId, 'point-12');
   });
 }

@@ -277,8 +277,8 @@ class CaptureController extends ChangeNotifier {
         _copyState(
           isSaving: false,
           statusMessage: capture.wasQualityOverride
-              ? 'Captura guardada con excepción de calidad registrada.'
-              : 'Captura guardada correctamente.',
+              ? 'Captura guardada en Descargas/DatasetCaptures con excepción de calidad registrada.'
+              : 'Captura guardada en Descargas/DatasetCaptures.',
           lastCreatedCapture: capture,
           clearPendingImage: true,
         ),

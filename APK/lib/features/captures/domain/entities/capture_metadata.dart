@@ -1,4 +1,5 @@
 const Object _floorSentinel = Object();
+const Object _nullableSentinel = Object();
 
 enum MetadataStatus {
   pending,
@@ -57,6 +58,9 @@ class CaptureMetadata {
     this.floor,
     this.compassHeadingDegrees,
     this.compassDirection,
+    this.pointId,
+    this.referenceLatitude,
+    this.referenceLongitude,
   });
 
   final String block;
@@ -69,6 +73,9 @@ class CaptureMetadata {
   final int? floor;
   final double? compassHeadingDegrees;
   final String? compassDirection;
+  final String? pointId;
+  final double? referenceLatitude;
+  final double? referenceLongitude;
 
   bool get isReadyForTraining => status == MetadataStatus.complete;
 
@@ -93,6 +100,9 @@ class CaptureMetadata {
     Object? floor = _floorSentinel,
     double? compassHeadingDegrees,
     String? compassDirection,
+    Object? pointId = _nullableSentinel,
+    Object? referenceLatitude = _nullableSentinel,
+    Object? referenceLongitude = _nullableSentinel,
   }) {
     return CaptureMetadata(
       block: block ?? this.block,
@@ -106,15 +116,26 @@ class CaptureMetadata {
       compassHeadingDegrees:
           compassHeadingDegrees ?? this.compassHeadingDegrees,
       compassDirection: compassDirection ?? this.compassDirection,
+      pointId: pointId == _nullableSentinel ? this.pointId : pointId as String?,
+      referenceLatitude: referenceLatitude == _nullableSentinel
+          ? this.referenceLatitude
+          : referenceLatitude as double?,
+      referenceLongitude: referenceLongitude == _nullableSentinel
+          ? this.referenceLongitude
+          : referenceLongitude as double?,
     );
   }
 
   Map<String, Object?> toJson() {
     return <String, Object?>{
       'block': block,
-      'coordinates': <String, double>{
-        'latitude': latitude,
-        'longitude': longitude,
+      'pointId': pointId,
+      'coordinates': <String, Object?>{
+        'gps': <String, double>{'latitude': latitude, 'longitude': longitude},
+        'reference': <String, double?>{
+          'latitude': referenceLatitude,
+          'longitude': referenceLongitude,
+        },
       },
       'timestamp': timestamp.toIso8601String(),
       'author': author,
@@ -132,6 +153,8 @@ class CaptureMetadata {
         rawCoordinates is Map<Object?, Object?>
         ? rawCoordinates.cast<String, Object?>()
         : <String, Object?>{};
+    final Map<String, Object?> gps = _asMap(coordinates['gps']);
+    final Map<String, Object?> reference = _asMap(coordinates['reference']);
     final double? heading = (json['compassHeadingDegrees'] as num?)?.toDouble();
     final String? storedDirection = json['compassDirection'] as String?;
     final Object? rawFloor = json['floor'];
@@ -139,8 +162,16 @@ class CaptureMetadata {
 
     return CaptureMetadata(
       block: json['block'] as String? ?? '',
-      latitude: (coordinates['latitude'] as num?)?.toDouble() ?? 0,
-      longitude: (coordinates['longitude'] as num?)?.toDouble() ?? 0,
+      // Records created before the dataset schema update stored GPS directly
+      // under `coordinates`; retain that layout when reading existing data.
+      latitude:
+          (gps['latitude'] as num?)?.toDouble() ??
+          (coordinates['latitude'] as num?)?.toDouble() ??
+          0,
+      longitude:
+          (gps['longitude'] as num?)?.toDouble() ??
+          (coordinates['longitude'] as num?)?.toDouble() ??
+          0,
       timestamp:
           DateTime.tryParse(json['timestamp'] as String? ?? '') ??
           DateTime.fromMillisecondsSinceEpoch(0),
@@ -152,7 +183,16 @@ class CaptureMetadata {
       compassDirection:
           storedDirection ??
           (heading == null ? null : directionFromHeading(heading)),
+      pointId: json['pointId'] as String?,
+      referenceLatitude: (reference['latitude'] as num?)?.toDouble(),
+      referenceLongitude: (reference['longitude'] as num?)?.toDouble(),
     );
+  }
+
+  static Map<String, Object?> _asMap(Object? value) {
+    return value is Map<Object?, Object?>
+        ? value.cast<String, Object?>()
+        : <String, Object?>{};
   }
 
   static String directionFromHeading(double headingDegrees) {
