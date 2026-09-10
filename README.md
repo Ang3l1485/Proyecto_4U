@@ -1,6 +1,6 @@
 # Proyecto 4U
 
-Proyecto para recopilar un dataset visual del campus, entrenar y validar modelos de visión por computador y estimar la ubicación de una persona a partir de imágenes y sensores del dispositivo.
+Proyecto para recopilar un dataset visual del campus, entrenar y validar modelos de visión por computador y estimar la ubicación de una persona a partir de imágenes.
 
 ## Componentes
 
