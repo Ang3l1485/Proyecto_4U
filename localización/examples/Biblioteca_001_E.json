@@ -1,0 +1,18 @@
+{
+  "metadata": {
+    "pointId": "biblioteca_001",
+    "block": "Biblioteca",
+    "coordinates": {
+      "gps": {"latitude": 6.201182, "longitude": -75.578534},
+      "reference": {"latitude": 6.201160, "longitude": -75.578501}
+    },
+    "timestamp": "2026-09-08T17:02:48.904254",
+    "author": "miguel",
+    "sessionId": "1788904924558",
+    "floor": null,
+    "compassHeadingDegrees": 78.55,
+    "compassDirection": "E"
+  },
+  "quality": {"width": 720, "height": 1280, "averageBrightness": 93.33, "sharpnessScore": 20.24, "rejectionReasons": []},
+  "wasQualityOverride": false
+}

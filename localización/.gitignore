@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.env
+dataset/*
+!dataset/.gitkeep
+test_images/*
+!test_images/.gitkeep
+results/
+.model-cache/

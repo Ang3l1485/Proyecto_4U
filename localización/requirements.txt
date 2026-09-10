@@ -1,0 +1,12 @@
+fastapi==0.115.12
+uvicorn==0.34.2
+python-multipart==0.0.20
+pydantic-settings==2.9.1
+numpy==2.2.6
+Pillow==11.2.1
+torch==2.7.1
+transformers==4.52.4
+qdrant-client==1.14.2
+requests==2.32.4
+pytest==8.3.5
+httpx==0.28.1
