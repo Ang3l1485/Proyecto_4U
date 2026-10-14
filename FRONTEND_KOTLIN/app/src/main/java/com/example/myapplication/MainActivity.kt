@@ -14,10 +14,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import androidx.navigation.NavBackStackEntry
+import androidx.navigation.NavGraphBuilder
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -35,6 +39,9 @@ import com.example.myapplication.ui.admin.recoleccion.UbicacionManualScreen
 import com.example.myapplication.ui.admin.recoleccion.RecoleccionScreen
 import com.example.myapplication.ui.admin.calibracion.CalibracionScreen
 import com.example.myapplication.domain.model.SesionDeRecoleccion
+import com.example.myapplication.domain.model.Modulo
+import com.example.myapplication.session.SessionManager
+import com.example.myapplication.ui.admin.usuarios.UsuariosScreen
 
 
 class MainActivity : ComponentActivity() {
@@ -160,6 +167,7 @@ fun AppNav() {
                 onImagenes = { nav.navigate("admin/imagenes") },
                 onVideos = { nav.navigate("admin/videos") },
                 onEstadisticas = { nav.navigate("admin/estadisticas") },
+                onUsuarios = { nav.navigate("admin/usuarios") },
                 onAjustes = { nav.navigate("ajustes") },
                 onVolverModoPublico = { nav.popBackStack("inicio", inclusive = false) },
                 onSesionCerrada = { nav.popBackStack("inicio", inclusive = false) },
@@ -170,8 +178,9 @@ fun AppNav() {
         }
 
         // ── Vistas implementadas ──
+        // Cada ruta admin se registra con rutaAdmin(): sin permiso del módulo vuelve al panel.
 
-        composable("admin/mapa") {
+        rutaAdmin("admin/mapa", Modulo.MAPA, nav) {
             EditorMapaScreen(
                 onVolver = { nav.popBackStack() },
                 onVerLista = { /* vista 17 aún no existe */ },
@@ -179,7 +188,7 @@ fun AppNav() {
             )
         }
 
-        composable("admin/imagenes") {
+        rutaAdmin("admin/imagenes", Modulo.IMAGENES, nav) {
             GaleriaScreen(
                 onVolver = { nav.popBackStack() },
                 onAbrirImagen = { _, _ -> }, // placeholder: aún no existe la vista 7.12
@@ -187,7 +196,7 @@ fun AppNav() {
         }
 
         // 7.13 Lista de videos
-        composable("admin/videos") {
+        rutaAdmin("admin/videos", Modulo.VIDEOS, nav) {
             VideosScreen(
                 onVolver = { nav.popBackStack() },
                 onAbrirVideo = { id -> nav.navigate("admin/videos/$id") },
@@ -195,8 +204,8 @@ fun AppNav() {
         }
 
         // 7.14 Detalle de video
-        composable("admin/videos/{videoId}") { entrada ->
-            val videoId = entrada.arguments?.getString("videoId") ?: return@composable
+        rutaAdmin("admin/videos/{videoId}", Modulo.VIDEOS, nav) { entrada ->
+            val videoId = entrada.arguments?.getString("videoId") ?: return@rutaAdmin
             VideoDetalleScreen(
                 videoId = videoId,
                 onVolver = { nav.popBackStack() },
@@ -204,8 +213,17 @@ fun AppNav() {
             )
         }
 
+        // HU-017 Gestión de usuarios
+        rutaAdmin("admin/usuarios", Modulo.USUARIOS, nav) {
+            UsuariosScreen(
+                onVolver = { nav.popBackStack() },
+                // El panel revalida el rol al mostrarse y oculta las tarjetas sin permiso.
+                onSinAcceso = { volverAlPanel(nav) },
+            )
+        }
+
         // 7.3 Ubicación manual inicial
-        composable("admin/ubicacion-manual") {
+        rutaAdmin("admin/ubicacion-manual", Modulo.RECOLECCION, nav) {
             // ACTIVITY_RECOGNITION es para el contador de pasos; si se niega, el PDR usa el acelerómetro.
             var permisosPedidos by rememberSaveable { mutableStateOf(false) }
             if (!permisosPedidos) {
@@ -227,7 +245,7 @@ fun AppNav() {
         }
 
         // 7.3b Calibración de la longitud de paso
-        composable("admin/calibracion") {
+        rutaAdmin("admin/calibracion", Modulo.RECOLECCION, nav) {
             // ACTIVITY_RECOGNITION es para el contador de pasos; si se niega, el PDR usa el acelerómetro
             // y la pantalla lo avisa. Antes de Android 10 la lista está vacía y pasa directo.
             var permisosPedidos by rememberSaveable { mutableStateOf(false) }
@@ -242,7 +260,7 @@ fun AppNav() {
         }
 
         // 7.4 Recolección en curso
-        composable("admin/recoleccion") {
+        rutaAdmin("admin/recoleccion", Modulo.RECOLECCION, nav) {
             // La cámara es indispensable (como en «ubicarme»). La actividad física ya se pidió en 7.3;
             // si se negó, el PDR usa el acelerómetro.
             var camaraLista by rememberSaveable { mutableStateOf(false) }
@@ -276,10 +294,35 @@ fun AppNav() {
         // ── Placeholders para que los botones no cierren la app ──
         // (navegar a una ruta que no está registrada cierra la app con un error)
         // 7.5 Resumen de video: falta ResumenVideoScreen (leerá SesionDeRecoleccion.resumen).
-        composable("admin/recoleccion/resumen") { /* placeholder */ }
-        composable("admin/lugares") { /* placeholder */ }
-        composable("admin/estadisticas") { /* placeholder */ }
+        rutaAdmin("admin/recoleccion/resumen", Modulo.RECOLECCION, nav) { /* placeholder */ }
+        rutaAdmin("admin/lugares", Modulo.MAPA, nav) { /* placeholder */ }
+        rutaAdmin("admin/estadisticas", Modulo.RECOLECCION, nav) { /* placeholder */ }
         composable("ajustes") { /* placeholder */ }
+    }
+}
+
+/**
+ * Registra una ruta de administración protegida por [PoliticaAcceso][com.example.myapplication.domain.usecase.PoliticaAcceso]:
+ * solo se compone si la sesión puede acceder a [modulo]; si no, vuelve al panel.
+ */
+private fun NavGraphBuilder.rutaAdmin(
+    ruta: String,
+    modulo: Modulo,
+    nav: NavHostController,
+    contenido: @Composable (NavBackStackEntry) -> Unit,
+) {
+    composable(ruta) { entrada ->
+        val context = LocalContext.current
+        val permitido = remember { SessionManager(context.applicationContext).puedeAcceder(modulo) }
+        if (permitido) contenido(entrada)
+        else LaunchedEffect(Unit) { volverAlPanel(nav) }
+    }
+}
+
+/** Vuelve al panel; si no está en la pila (p. ej. pila restaurada), lo abre y él valida la sesión. */
+private fun volverAlPanel(nav: NavHostController) {
+    if (!nav.popBackStack("admin/panel", inclusive = false)) {
+        nav.navigate("admin/panel") { popUpTo("inicio") }
     }
 }
 

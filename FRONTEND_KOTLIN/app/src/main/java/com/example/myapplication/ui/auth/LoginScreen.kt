@@ -332,6 +332,12 @@ private fun BannerError(error: LoginError) {
             titulo = "Credenciales inválidas",
             mensaje = "El usuario o la contraseña son incorrectos.",
         )
+        LoginError.CuentaDesactivada -> BannerEstado(
+            tipo = TipoBanner.Error,
+            icono = Icons.Outlined.Lock,
+            titulo = "Cuenta desactivada",
+            mensaje = "Tu cuenta fue desactivada por un administrador.\nContacta al administrador para reactivarla.",
+        )
         LoginError.SinConexion -> BannerEstado(
             tipo = TipoBanner.Advertencia,
             icono = Icons.Outlined.WarningAmber,
@@ -342,7 +348,7 @@ private fun BannerError(error: LoginError) {
             tipo = TipoBanner.Error,
             icono = Icons.Outlined.Lock,
             titulo = "Sin permisos",
-            mensaje = "Tu cuenta no tiene rol de administrador, por eso no se habilita el panel.",
+            mensaje = "Tu cuenta no tiene permisos de administración ni de investigación, por eso no se habilita el panel.",
         )
         LoginError.Desconocido -> BannerEstado(
             tipo = TipoBanner.Error,

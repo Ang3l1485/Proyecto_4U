@@ -7,7 +7,8 @@ import androidx.lifecycle.viewModelScope
 import com.example.myapplication.data.repository.AuthRepository
 import com.example.myapplication.data.repository.AuthRepositoryStub
 import com.example.myapplication.data.repository.CredencialesInvalidasException
-import com.example.myapplication.domain.model.Rol
+import com.example.myapplication.data.repository.CuentaDesactivadaException
+import com.example.myapplication.domain.usecase.PoliticaAcceso
 import com.example.myapplication.session.SessionManager
 import java.io.IOException
 import kotlinx.coroutines.channels.Channel
@@ -18,7 +19,7 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-enum class LoginError { CredencialesInvalidas, SinConexion, SinPermisos, Desconocido }
+enum class LoginError { CredencialesInvalidas, CuentaDesactivada, SinConexion, SinPermisos, Desconocido }
 
 data class LoginUiState(
     val identificador: String = "",
@@ -32,7 +33,7 @@ data class LoginUiState(
 }
 
 sealed interface LoginEvento {
-    /** Sesión ADMIN válida: navegar a admin/panel. */
+    /** Sesión con acceso al panel (ADMIN o INVESTIGADOR): navegar a admin/panel. */
     data object IrAlPanel : LoginEvento
 }
 
@@ -48,8 +49,8 @@ class LoginViewModel(
     val eventos = _eventos.receiveAsFlow()
 
     init {
-        // Si ya hay una sesión ADMIN guardada, se entra directo al panel.
-        if (session.esAdmin()) _eventos.trySend(LoginEvento.IrAlPanel)
+        // Si ya hay una sesión con acceso al panel guardada, se entra directo.
+        if (session.puedeEntrarAlPanel()) _eventos.trySend(LoginEvento.IrAlPanel)
     }
 
     fun onIdentificadorChange(valor: String) =
@@ -69,17 +70,19 @@ class LoginViewModel(
         viewModelScope.launch {
             try {
                 val sesion = auth.login(actual.identificador.trim(), actual.password)
-                if (sesion.usuario.rol == Rol.ADMIN) {
+                if (PoliticaAcceso.puedeEntrarAlPanel(sesion.usuario.rol)) {
                     session.guardar(sesion)
                     _state.update { it.copy(cargando = false, password = "") }
                     _eventos.send(LoginEvento.IrAlPanel)
                 } else {
-                    // Cuenta válida pero sin rol ADMIN: no se guarda sesión ni se habilita el panel.
+                    // Cuenta válida sin ningún módulo (USER): no se guarda sesión ni se habilita el panel.
                     session.cerrarSesion()
                     _state.update { it.copy(cargando = false, password = "", error = LoginError.SinPermisos) }
                 }
             } catch (e: CredencialesInvalidasException) {
                 _state.update { it.copy(cargando = false, error = LoginError.CredencialesInvalidas) }
+            } catch (e: CuentaDesactivadaException) {
+                _state.update { it.copy(cargando = false, error = LoginError.CuentaDesactivada) }
             } catch (e: IOException) {
                 _state.update { it.copy(cargando = false, error = LoginError.SinConexion) }
             } catch (e: Exception) {
