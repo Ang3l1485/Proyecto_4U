@@ -1,0 +1,40 @@
+﻿# ==============================================================
+# infrastructure/terraform.tfvars.example
+#
+# Copy this file to terraform.tfvars and fill in the real values.
+# terraform.tfvars is git-ignored — never commit real values.
+# ==============================================================
+
+aws_region = "us-east-2"
+
+# ------ Networking -----------------------------------------------
+# Find your VPC ID in the AWS Console → VPC → Your VPCs
+# or: aws ec2 describe-vpcs --query "Vpcs[*].{ID:VpcId}" --output table
+vpc_id = "vpc-xxxxxxxxxx"
+
+# ------ S3 -------------------------------------------------------
+# Must be globally unique across all AWS accounts
+s3_bucket_name = "my-locations-export-2026"
+s3_key_prefix  = "exports/"
+
+# ------ Database -------------------------------------------------
+# Aurora cluster reader/writer endpoint
+# Find it: AWS Console → RDS → your cluster → Endpoints
+db_host  = "database-2.cluster-cjmq86kk2phi.us-east-2.rds.amazonaws.com"
+db_port  = 5432
+db_user  = "postgres"
+db_name  = "postgres"
+db_table = "locations_info"
+
+# ------ ECS ------------------------------------------------------
+cluster_name = "my-first-cluster"
+
+# ------ Observability --------------------------------------------
+log_retention_days = 30
+
+# ------ Tags -----------------------------------------------------
+tags = {
+  Project   = "locations-info-export"
+  ManagedBy = "terraform"
+  Env       = "prod"
+}

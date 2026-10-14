@@ -1,0 +1,3 @@
+# Copiar a terraform.tfvars (ignorado por Git) y completar.
+state_bucket_name = "4uproject-eafit-tfstate-por-id-de-cuenta"
+github_repo       = "TU_USUARIO/campus-locator"

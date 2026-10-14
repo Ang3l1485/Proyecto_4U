@@ -1,0 +1,11 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfplan
+tfplan
+# Valores locales (los ejemplos .example sí se suben)
+bootstrap/terraform.tfvars
+*.auto.tfvars
+# OJO: .terraform.lock.hcl SÍ se sube a Git

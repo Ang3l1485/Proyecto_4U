@@ -1,0 +1,33 @@
+﻿# ==============================================================
+# infrastructure/.gitignore
+# Never commit secrets, state files, or provider binaries.
+# ==============================================================
+
+# Terraform state — contains sensitive resource IDs and secrets
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+# Crash log
+crash.log
+crash.*.log
+
+# Override files (local dev overrides)
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Terraform directory with downloaded providers
+.terraform/
+.terraform.lock.hcl
+
+# Variable files that may contain real secrets
+terraform.tfvars
+*.auto.tfvars
+
+# Plan files (can contain secrets)
+*.tfplan
+
+# macOS
+.DS_Store
