@@ -1,0 +1,38 @@
+{
+  "family": "locations-info-export",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "2048",
+  "memory": "4096",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/locations-export-task-role",
+  "containerDefinitions": [
+    {
+      "name": "locations-export",
+      "image": "ACCOUNT_ID.dkr.ecr.us-east-2.amazonaws.com/locations-export:latest",
+      "essential": true,
+      "environment": [
+        { "name": "DB_HOST",          "value": "database-2.cluster-cjmq86kk2phi.us-east-2.rds.amazonaws.com" },
+        { "name": "DB_PORT",          "value": "5432" },
+        { "name": "DB_USER",          "value": "postgres" },
+        { "name": "DB_NAME",          "value": "postgres" },
+        { "name": "DB_REGION",        "value": "us-east-2" },
+        { "name": "EMBEDDINGS_TABLE", "value": "train_embeddings" },
+        { "name": "LOCATIONS_TABLE",  "value": "locations_info" },
+        { "name": "INPUT_BUCKET",     "value": "4uproject-eafit" },
+        { "name": "INPUT_PREFIX",     "value": "testing/" },
+        { "name": "OUTPUT_BUCKET",    "value": "4uproject-eafit" },
+        { "name": "OUTPUT_PREFIX",    "value": "output/" },
+        { "name": "CLIP_MODEL_ID",    "value": "openai/clip-vit-base-patch32" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/locations-info-export",
+          "awslogs-region": "us-east-2",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}
