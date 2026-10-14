@@ -3,9 +3,11 @@ package com.example.myapplication.session
 import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.example.myapplication.domain.model.Modulo
 import com.example.myapplication.domain.model.Rol
 import com.example.myapplication.domain.model.Sesion
 import com.example.myapplication.domain.model.Usuario
+import com.example.myapplication.domain.usecase.PoliticaAcceso
 
 /**
  * Guarda la sesión cifrada (AES-256, llave en Android Keystore).
@@ -52,6 +54,14 @@ class SessionManager(context: Context) {
     }
 
     fun esAdmin(): Boolean = obtener()?.usuario?.rol == Rol.ADMIN
+
+    /** Sin sesión no hay acceso; con sesión decide [PoliticaAcceso] según el rol guardado. */
+    fun puedeAcceder(modulo: Modulo): Boolean =
+        obtener()?.usuario?.rol?.let { PoliticaAcceso.puedeAcceder(it, modulo) } ?: false
+
+    /** Hay sesión y su rol puede usar el panel de administración (ADMIN o INVESTIGADOR). */
+    fun puedeEntrarAlPanel(): Boolean =
+        obtener()?.usuario?.rol?.let(PoliticaAcceso::puedeEntrarAlPanel) ?: false
 
     /** Cerrar sesión: borra token y datos del usuario. */
     fun cerrarSesion() = prefs.edit().clear().apply()
