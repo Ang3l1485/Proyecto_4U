@@ -6,8 +6,10 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.myapplication.data.repository.AdminRepository
 import com.example.myapplication.data.repository.AdminRepositoryStub
+import com.example.myapplication.domain.model.Modulo
 import com.example.myapplication.domain.model.ResumenAdmin
 import com.example.myapplication.domain.model.Rol
+import com.example.myapplication.domain.usecase.PoliticaAcceso
 import com.example.myapplication.session.SessionManager
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,12 +25,14 @@ data class PanelUiState(
     val resumen: ResumenAdmin? = null,
     val cargandoResumen: Boolean = true,
     val errorResumen: Boolean = false,
+    /** Módulos que el rol de la sesión puede abrir; las tarjetas del resto no se muestran. */
+    val modulosPermitidos: Set<Modulo> = emptySet(),
 )
 
 sealed interface PanelEvento {
     /** El admin cerró sesión: volver al flujo público. */
     data object SesionCerrada : PanelEvento
-    /** No hay sesión ADMIN válida: redirigir a Login. */
+    /** No hay sesión con acceso al panel: redirigir a Login. */
     data object SinSesion : PanelEvento
 }
 
@@ -43,18 +47,27 @@ class PanelAdminViewModel(
     private val _eventos = Channel<PanelEvento>(Channel.BUFFERED)
     val eventos = _eventos.receiveAsFlow()
 
-    init {
+    private var resumenSolicitado = false
+
+    /**
+     * Guarda de rol. La pantalla la llama cada vez que el panel se muestra, para reflejar cambios
+     * de rol hechos mientras tanto (p. ej. un admin que se asignó otro rol en Usuarios).
+     */
+    fun validarSesion() {
         val sesion = session.obtener()
-        if (sesion == null || sesion.usuario.rol != Rol.ADMIN) {
-            // Guarda de rol: sin sesión ADMIN no se muestra el panel.
+        if (sesion == null || !PoliticaAcceso.puedeEntrarAlPanel(sesion.usuario.rol)) {
             _eventos.trySend(PanelEvento.SinSesion)
-        } else {
-            _state.update {
-                it.copy(
-                    nombre = sesion.usuario.nombre.trim().substringBefore(' '),
-                    rolTexto = "Administrador del sistema",
-                )
-            }
+            return
+        }
+        _state.update {
+            it.copy(
+                nombre = sesion.usuario.nombre.trim().substringBefore(' '),
+                rolTexto = if (sesion.usuario.rol == Rol.ADMIN) "Administrador del sistema" else "Investigador",
+                modulosPermitidos = Modulo.entries.filter(session::puedeAcceder).toSet(),
+            )
+        }
+        if (!resumenSolicitado) {
+            resumenSolicitado = true
             cargarResumen()
         }
     }

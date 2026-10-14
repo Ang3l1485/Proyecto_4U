@@ -28,6 +28,7 @@ import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.CloudUpload
+import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Map
 import androidx.compose.material.icons.outlined.PhotoCamera
@@ -68,6 +69,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.foundation.BorderStroke
+import com.example.myapplication.domain.model.Modulo
 import com.example.myapplication.domain.model.ResumenAdmin
 import com.example.myapplication.ui.theme.CampusColors as C
 import java.text.NumberFormat
@@ -83,6 +85,7 @@ data class PanelAcciones(
     val onImagenes: () -> Unit = {},
     val onVideos: () -> Unit = {},
     val onEstadisticas: () -> Unit = {},
+    val onUsuarios: () -> Unit = {},
     val onAjustes: () -> Unit = {},
     val onCerrarSesion: () -> Unit = {},
     val onVolverModoPublico: () -> Unit = {},
@@ -93,7 +96,7 @@ data class PanelAcciones(
  * Vista 7.2 — Panel admin.
  *
  * @param onSesionCerrada se invoca tras cerrar sesión (volver al flujo público).
- * @param onSinSesion se invoca si no hay sesión ADMIN válida (ir a Login).
+ * @param onSinSesion se invoca si no hay sesión con acceso al panel (ir a Login).
  */
 @Composable
 fun PanelAdminScreen(
@@ -103,6 +106,7 @@ fun PanelAdminScreen(
     onImagenes: () -> Unit,
     onVideos: () -> Unit,
     onEstadisticas: () -> Unit,
+    onUsuarios: () -> Unit,
     onAjustes: () -> Unit,
     onVolverModoPublico: () -> Unit,
     onSesionCerrada: () -> Unit,
@@ -114,6 +118,8 @@ fun PanelAdminScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) {
+        // Se ejecuta cada vez que el panel vuelve a mostrarse (Navigation recompone el destino).
+        viewModel.validarSesion()
         viewModel.eventos.collect { evento ->
             when (evento) {
                 PanelEvento.SesionCerrada -> onSesionCerrada()
@@ -131,6 +137,7 @@ fun PanelAdminScreen(
             onImagenes = onImagenes,
             onVideos = onVideos,
             onEstadisticas = onEstadisticas,
+            onUsuarios = onUsuarios,
             onAjustes = onAjustes,
             onCerrarSesion = viewModel::cerrarSesion,
             onVolverModoPublico = onVolverModoPublico,
@@ -151,18 +158,21 @@ internal fun PanelAdminContent(state: PanelUiState, acciones: PanelAcciones) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Encabezado(state, acciones.onAjustes)
-        FilaTarjetas(
-            izquierda = Acceso("Recolector de imágenes", "Captura y gestiona las imágenes del entorno.", Icons.Outlined.PhotoCamera, acciones.onRecolector, destacada = true),
-            derecha = Acceso("Lugares", "Administra los lugares del campus.", Icons.Outlined.Place, acciones.onLugares),
-        )
-        FilaTarjetas(
-            izquierda = Acceso("Mapa y alertas", "Gestiona el mapa, rutas y alertas de seguridad.", Icons.Outlined.Map, acciones.onMapaAlertas),
-            derecha = Acceso("Imágenes", "Revisa y administra el dataset de imágenes.", Icons.Outlined.Image, acciones.onImagenes),
-        )
-        FilaTarjetas(
-            izquierda = Acceso("Videos", "Gestiona los videos del sistema.", Icons.Outlined.Videocam, acciones.onVideos),
-            derecha = Acceso("Estadísticas", "Consulta métricas y rendimiento del sistema.", Icons.Outlined.BarChart, acciones.onEstadisticas),
-        )
+        // Las tarjetas sin permiso no se componen: no se ven ni las enfoca TalkBack.
+        val accesos = listOf(
+            Acceso("Recolector de imágenes", "Captura y gestiona las imágenes del entorno.", Icons.Outlined.PhotoCamera, acciones.onRecolector, Modulo.RECOLECCION, destacada = true),
+            Acceso("Lugares", "Administra los lugares del campus.", Icons.Outlined.Place, acciones.onLugares, Modulo.MAPA),
+            Acceso("Mapa y alertas", "Gestiona el mapa, rutas y alertas de seguridad.", Icons.Outlined.Map, acciones.onMapaAlertas, Modulo.MAPA),
+            Acceso("Imágenes", "Revisa y administra el dataset de imágenes.", Icons.Outlined.Image, acciones.onImagenes, Modulo.IMAGENES),
+            Acceso("Videos", "Gestiona los videos del sistema.", Icons.Outlined.Videocam, acciones.onVideos, Modulo.VIDEOS),
+            Acceso("Estadísticas", "Consulta métricas y rendimiento del sistema.", Icons.Outlined.BarChart, acciones.onEstadisticas, Modulo.RECOLECCION),
+            Acceso("Usuarios", "Gestiona roles y el acceso de las cuentas.", Icons.Outlined.Group, acciones.onUsuarios, Modulo.USUARIOS),
+        ).filter { it.modulo in state.modulosPermitidos }
+
+        accesos.chunked(2).forEach { fila ->
+            if (fila.size == 2) FilaTarjetas(izquierda = fila[0], derecha = fila[1])
+            else TarjetaAcceso(fila[0], Modifier.fillMaxWidth())
+        }
 
         ResumenRapido(state, acciones.onReintentarResumen)
 
@@ -245,6 +255,7 @@ private data class Acceso(
     val descripcion: String,
     val icono: ImageVector,
     val onClick: () -> Unit,
+    val modulo: Modulo,
     val destacada: Boolean = false,
 )
 
@@ -463,6 +474,20 @@ private fun PreviewPanel() = PanelAdminContent(
         rolTexto = "Administrador del sistema",
         cargandoResumen = false,
         resumen = ResumenAdmin(2842, 48, 3, 12, System.currentTimeMillis(), 27),
+        modulosPermitidos = Modulo.entries.toSet(),
+    ),
+    PanelAcciones(),
+)
+
+@Preview(showBackground = true, widthDp = 390, heightDp = 900)
+@Composable
+private fun PreviewPanelInvestigador() = PanelAdminContent(
+    PanelUiState(
+        nombre = "Laura",
+        rolTexto = "Investigador",
+        cargandoResumen = false,
+        resumen = ResumenAdmin(2842, 48, 3, 12, System.currentTimeMillis(), 27),
+        modulosPermitidos = setOf(Modulo.IMAGENES, Modulo.VIDEOS),
     ),
     PanelAcciones(),
 )
@@ -470,13 +495,13 @@ private fun PreviewPanel() = PanelAdminContent(
 @Preview(showBackground = true, widthDp = 390, heightDp = 900)
 @Composable
 private fun PreviewPanelCargando() = PanelAdminContent(
-    PanelUiState(nombre = "Alejandro", rolTexto = "Administrador del sistema"),
+    PanelUiState(nombre = "Alejandro", rolTexto = "Administrador del sistema", modulosPermitidos = Modulo.entries.toSet()),
     PanelAcciones(),
 )
 
 @Preview(showBackground = true, widthDp = 390, heightDp = 900)
 @Composable
 private fun PreviewPanelError() = PanelAdminContent(
-    PanelUiState(nombre = "Alejandro", rolTexto = "Administrador del sistema", cargandoResumen = false, errorResumen = true),
+    PanelUiState(nombre = "Alejandro", rolTexto = "Administrador del sistema", modulosPermitidos = Modulo.entries.toSet(), cargandoResumen = false, errorResumen = true),
     PanelAcciones(),
 )
