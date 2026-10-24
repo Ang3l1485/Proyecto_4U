@@ -1,0 +1,20 @@
+# Terraform: nunca se suben estados ni directorios de trabajo (README raíz, «Convenciones»).
+# .terraform.lock.hcl SÍ se versiona.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Informes de los validadores (ARCHITECTURE §5.11)
+.validacion/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/

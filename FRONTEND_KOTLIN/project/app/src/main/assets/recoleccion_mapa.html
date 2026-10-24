@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<!-- Sin viewport-fit=cover ni setInsets: el mapa es una tarjeta dentro de Compose (pasarInsets = false). -->
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Mapa de recolección</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root {
+    --fondo: #0A0E1A;
+    --violeta: #7C5CFF;
+    --violeta-claro: #C4B5FD;
+    --ancla: #FF4D7D;
+    --alerta: #F59E0B;
+    --alerta-off: #64748b;
+  }
+  html, body, #map { height: 100%; margin: 0; background: var(--fondo); }
+  body { font-family: system-ui, sans-serif; overflow: hidden; }
+
+  /* El zoom lo dibuja Compose (+/−); la atribución de OSM se conserva (licencia). */
+  .leaflet-control-zoom { display: none; }
+  .leaflet-container { background: var(--fondo); }
+
+  .icono-vacio { background: none; border: none; }
+
+  /* Posición actual: punto con halo y flecha de rumbo */
+  .yo { position: relative; width: 36px; height: 36px; }
+  .yo .halo { position: absolute; inset: 0; border-radius: 50%; background: rgba(124, 92, 255, .28); }
+  .yo .flecha { position: absolute; inset: 0; transition: transform .25s linear; }
+  .yo .flecha svg { width: 100%; height: 100%; display: block; }
+  @media (prefers-reduced-motion: no-preference) {
+    .yo .halo { animation: pulso 2.2s ease-out infinite; }
+  }
+  @keyframes pulso { 0% { transform: scale(.55); opacity: .9; } 100% { transform: scale(1.1); opacity: 0; } }
+
+  /* Foto tomada: punto + marca de rumbo */
+  .foto { position: relative; width: 16px; height: 16px; }
+  .foto b { position: absolute; left: 4px; top: 4px; width: 8px; height: 8px; border-radius: 50%;
+            background: var(--violeta-claro); border: 1.5px solid #fff; box-sizing: border-box; }
+  .foto i { position: absolute; left: 7px; top: -1px; width: 2px; height: 8px; border-radius: 1px;
+            background: var(--violeta-claro); transform-origin: 1px 9px; }
+
+  /* Ancla del re-anclaje: alfiler rosa, grande para dedos */
+  .ancla { width: 40px; height: 40px; }
+  .ancla svg { width: 100%; height: 100%; display: block; filter: drop-shadow(0 2px 4px rgba(0,0,0,.5)); }
+
+  .alerta-pin { width: 22px; height: 22px; border-radius: 50%; background: var(--alerta); color: #1a1200;
+                font: 700 14px/22px system-ui, sans-serif; text-align: center; border: 2px solid #fff; box-sizing: border-box; }
+  .alerta-pin.off { background: var(--alerta-off); color: #fff; }
+
+  .leaflet-tooltip { background: #141a2e; color: #fff; border: 1px solid #2a3358; box-shadow: none; max-width: 220px; white-space: normal; }
+  .leaflet-tooltip-top:before { border-top-color: #2a3358; }
+
+</style>
+</head>
+<body>
+<!-- Salvavidas: MapaBase.iniciar (11.9) mide #top / #dock y cablea #btn-back. Esta página no los usa;
+     si mapa_base.js ya tolera que falten, borrar estas tres líneas. -->
+<div id="top" hidden></div><div id="dock" hidden></div><button id="btn-back" hidden aria-hidden="true" tabindex="-1"></button>
+
+<div id="map" role="application" aria-label="Mapa de recolección en vivo"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="mapa_base.js"></script>
+<script src="recoleccion_mapa.js"></script>
+</body>
+</html>

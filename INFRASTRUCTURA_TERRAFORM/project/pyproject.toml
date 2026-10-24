@@ -1,0 +1,18 @@
+# Solo para los validadores de los lotes INF-x.y (ARCHITECTURE §5.11): no es un paquete instalable.
+# Uso: uv run --group ops python src/ops/validate<fase><n>.py --entorno dev
+
+[project]
+name = "campus-locator-infraestructura"
+version = "0.1.0"
+description = "Validadores de los lotes de INFRASTRUCTURA_TERRAFORM"
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+ops = [
+    "boto3>=1.35",
+    "httpx>=0.27",
+]
+
+[tool.uv]
+package = false

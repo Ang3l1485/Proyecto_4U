@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+    <title>StepTracker</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+/* ==========================================
+   StepTracker — Complete Styles
+   ========================================== */
+:root {
+    --bg-dark: #0a0e1a;
+    --bg-surface: #111827;
+    --bg-card: rgba(17, 24, 39, 0.85);
+    --bg-glass: rgba(17, 24, 39, 0.75);
+    --bg-glass-light: rgba(255, 255, 255, 0.05);
+    --accent-primary: #6366f1;
+    --accent-secondary: #06b6d4;
+    --accent-success: #10b981;
+    --accent-warning: #f59e0b;
+    --accent-danger: #ef4444;
+    --gradient-primary: linear-gradient(135deg, #6366f1, #06b6d4);
+    --gradient-warm: linear-gradient(135deg, #f59e0b, #ef4444);
+    --gradient-cool: linear-gradient(135deg, #06b6d4, #10b981);
+    --gradient-purple: linear-gradient(135deg, #8b5cf6, #ec4899);
+    --text-primary: #f1f5f9;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+    --border-subtle: rgba(255,255,255,0.08);
+    --border-accent: rgba(99,102,241,0.3);
+    --font-main: 'Inter', -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-xl: 24px;
+    --radius-full: 9999px;
+    --shadow-md: 0 4px 16px rgba(0,0,0,0.4);
+    --shadow-lg: 0 8px 32px rgba(0,0,0,0.5);
+    --shadow-glow: 0 0 20px rgba(99,102,241,0.3);
+    --transition-fast: 150ms cubic-bezier(0.4,0,0.2,1);
+    --transition-normal: 250ms cubic-bezier(0.4,0,0.2,1);
+    --transition-slow: 400ms cubic-bezier(0.4,0,0.2,1);
+}
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;font-family:var(--font-main);background:var(--bg-dark);color:var(--text-primary);-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+#map{width:100%;height:100%;position:absolute;top:0;left:0;z-index:1}
+
+/* Leaflet Overrides */
+.leaflet-control-zoom{border:none!important;box-shadow:var(--shadow-md)!important}
+.leaflet-control-zoom a{background:var(--bg-surface)!important;color:var(--text-primary)!important;border:1px solid var(--border-subtle)!important;width:36px!important;height:36px!important;line-height:36px!important;font-size:18px!important;border-radius:0!important;transition:var(--transition-fast)}
+.leaflet-control-zoom a:first-child{border-radius:var(--radius-sm) var(--radius-sm) 0 0!important}
+.leaflet-control-zoom a:last-child{border-radius:0 0 var(--radius-sm) var(--radius-sm)!important}
+.leaflet-control-zoom a:hover{background:var(--accent-primary)!important}
+.leaflet-popup-content-wrapper{background:var(--bg-surface)!important;color:var(--text-primary)!important;border:1px solid var(--border-subtle)!important;border-radius:var(--radius-md)!important;box-shadow:var(--shadow-lg)!important;font-family:var(--font-main)!important}
+.leaflet-popup-tip{background:var(--bg-surface)!important}
+.leaflet-popup-content{margin:10px 14px!important;font-size:0.85rem!important;color:var(--text-secondary)!important}
+
+/* Marker Animations */
+@keyframes pulse-ring{0%{transform:scale(0.8);opacity:1}100%{transform:scale(2.5);opacity:0}}
+@keyframes pulse-dot{0%{transform:scale(1)}50%{transform:scale(1.1)}100%{transform:scale(1)}}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+@keyframes fadeInUp{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:translateY(0)}}
+@keyframes recording-pulse{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,0.4),var(--shadow-lg)}50%{box-shadow:0 0 0 12px rgba(239,68,68,0),var(--shadow-lg)}}
+@keyframes toastIn{from{opacity:0;transform:translateY(-10px) scale(0.95)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes toastOut{from{opacity:1;transform:translateY(0) scale(1)}to{opacity:0;transform:translateY(-10px) scale(0.95)}}
+
+.user-marker-dot{width:18px;height:18px;background:var(--accent-primary);border:3px solid white;border-radius:50%;box-shadow:0 0 10px rgba(99,102,241,0.6);animation:pulse-dot 2s ease-in-out infinite}
+.user-marker-ring{position:absolute;top:50%;left:50%;width:18px;height:18px;margin:-9px 0 0 -9px;border:2px solid var(--accent-primary);border-radius:50%;animation:pulse-ring 2s ease-out infinite}
+.user-marker-heading{position:absolute;top:-12px;left:50%;margin-left:-6px;width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:14px solid var(--accent-primary);filter:drop-shadow(0 0 4px rgba(99,102,241,0.5));transition:transform var(--transition-normal)}
+.start-marker-icon{width:14px;height:14px;background:var(--accent-success);border:3px solid white;border-radius:50%;box-shadow:0 0 8px rgba(16,185,129,0.5)}
+
+/* Splash */
+.splash-screen{position:fixed;top:0;left:0;width:100%;height:100%;z-index:1000;background:var(--bg-dark);display:flex;align-items:center;justify-content:center;transition:opacity 0.6s ease,transform 0.6s ease}
+.splash-screen.dismissed{opacity:0;transform:scale(1.05);pointer-events:none}
+.splash-content{text-align:center;animation:fadeInUp 0.8s ease;padding:24px}
+.splash-icon{margin-bottom:24px;animation:float 3s ease-in-out infinite}
+.splash-title{font-size:2.2rem;font-weight:800;background:var(--gradient-primary);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:8px;letter-spacing:-0.02em}
+.splash-subtitle{font-size:1rem;color:var(--text-secondary);font-weight:300;margin-bottom:8px}
+.splash-instructions{font-size:0.85rem;color:var(--text-muted);margin-bottom:28px;line-height:1.5}
+.btn-primary{display:inline-flex;align-items:center;gap:10px;padding:14px 32px;background:var(--gradient-primary);color:white;border:none;border-radius:var(--radius-full);font-family:var(--font-main);font-size:1rem;font-weight:600;cursor:pointer;transition:var(--transition-normal);box-shadow:var(--shadow-glow)}
+.btn-primary:active{transform:scale(0.96)}
+
+/* Top Bar */
+.top-bar{position:fixed;top:0;left:0;right:0;z-index:500;display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:linear-gradient(to bottom,rgba(10,14,26,0.9),rgba(10,14,26,0));backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);transition:var(--transition-normal)}
+.top-bar.hidden{opacity:0;transform:translateY(-20px);pointer-events:none}
+.status-indicator{display:flex;align-items:center;gap:8px;padding:6px 14px;background:var(--bg-glass);border:1px solid var(--border-subtle);border-radius:var(--radius-full);backdrop-filter:blur(10px)}
+.status-dot{width:8px;height:8px;border-radius:50%;background:var(--text-muted);transition:var(--transition-normal)}
+.status-dot.active{background:var(--accent-success);box-shadow:0 0 8px rgba(16,185,129,0.6);animation:pulse-dot 1.5s ease-in-out infinite}
+.status-dot.waiting{background:var(--accent-warning);box-shadow:0 0 8px rgba(245,158,11,0.4)}
+.status-text{font-size:0.8rem;font-weight:500;color:var(--text-secondary)}
+.top-bar-right{display:flex;gap:8px}
+.btn-icon{width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:var(--bg-glass);border:1px solid var(--border-subtle);border-radius:var(--radius-md);color:var(--text-secondary);cursor:pointer;transition:var(--transition-fast);backdrop-filter:blur(10px)}
+.btn-icon:active{background:var(--bg-glass-light);color:var(--text-primary);border-color:var(--border-accent)}
+.btn-icon.active{background:rgba(99,102,241,0.2);color:var(--accent-primary);border-color:var(--accent-primary)}
+
+/* Stats Panel */
+.stats-panel{position:fixed;bottom:0;left:0;right:0;z-index:400;background:var(--bg-glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:1px solid var(--border-subtle);border-radius:var(--radius-xl) var(--radius-xl) 0 0;transition:transform var(--transition-slow),opacity var(--transition-normal);max-height:75vh;overflow-y:auto;overscroll-behavior:contain}
+.stats-panel.hidden{transform:translateY(100%);opacity:0;pointer-events:none}
+.stats-handle{display:flex;justify-content:center;padding:10px;cursor:pointer}
+.handle-bar{width:40px;height:4px;background:var(--text-muted);border-radius:var(--radius-full);opacity:0.5;transition:var(--transition-fast)}
+
+/* Compact Stats */
+.stats-compact{display:flex;justify-content:space-around;padding:0 12px 10px;gap:6px;flex-wrap:wrap}
+.stat-chip{display:flex;align-items:center;gap:5px;padding:6px 12px;background:var(--bg-glass-light);border:1px solid var(--border-subtle);border-radius:var(--radius-full);color:var(--text-secondary);flex:1;min-width:0;justify-content:center}
+.stat-chip svg{opacity:0.6;flex-shrink:0}
+.stat-chip span{font-size:0.9rem;font-weight:600;color:var(--text-primary);font-family:var(--font-mono)}
+.stat-chip small{font-size:0.65rem;color:var(--text-muted);font-weight:400}
+
+/* Expanded */
+.stats-expanded{display:none;padding:4px 12px 90px}
+.stats-panel.expanded .stats-expanded{display:block;animation:fadeInUp 0.3s ease}
+.stats-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px}
+.stat-card{background:var(--bg-glass-light);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:12px;position:relative;overflow:hidden}
+.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;border-radius:var(--radius-md) var(--radius-md) 0 0}
+.stat-card-steps::before{background:var(--gradient-primary)}
+.stat-card-speed::before{background:var(--gradient-cool)}
+.stat-card-accel::before{background:var(--gradient-warm)}
+.stat-card-distance::before{background:var(--gradient-purple)}
+.stat-card-cadence::before{background:var(--gradient-primary)}
+.stat-card-heading::before{background:var(--gradient-cool)}
+.stat-card-calories::before{background:var(--gradient-warm)}
+.stat-card-altitude::before{background:var(--gradient-purple)}
+.stat-card-header{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.stat-icon{width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:var(--radius-sm);flex-shrink:0}
+.steps-icon{background:rgba(99,102,241,0.15);color:var(--accent-primary)}
+.speed-icon{background:rgba(6,182,212,0.15);color:var(--accent-secondary)}
+.accel-icon{background:rgba(245,158,11,0.15);color:var(--accent-warning)}
+.distance-icon{background:rgba(139,92,246,0.15);color:#8b5cf6}
+.cadence-icon{background:rgba(99,102,241,0.15);color:var(--accent-primary)}
+.heading-icon{background:rgba(6,182,212,0.15);color:var(--accent-secondary)}
+.calories-icon{background:rgba(239,68,68,0.15);color:var(--accent-danger)}
+.altitude-icon{background:rgba(139,92,246,0.15);color:#8b5cf6}
+.stat-label{font-size:0.7rem;font-weight:500;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em}
+.stat-value{display:block;font-size:1.3rem;font-weight:700;font-family:var(--font-mono);color:var(--text-primary);line-height:1.2;margin-bottom:2px}
+.stat-value small{font-size:0.6rem;font-weight:400;color:var(--text-muted);text-transform:uppercase}
+.stat-sub{font-size:0.65rem;color:var(--text-muted)}
+.stat-bar{height:3px;background:rgba(255,255,255,0.06);border-radius:var(--radius-full);margin:5px 0;overflow:hidden}
+.stat-bar-fill{height:100%;background:var(--gradient-primary);border-radius:var(--radius-full);transition:width var(--transition-normal)}
+
+/* Compass */
+.compass-mini{width:34px;height:34px;border-radius:50%;border:2px solid var(--border-subtle);position:relative;margin-top:4px;background:rgba(0,0,0,0.2)}
+.compass-needle{position:absolute;top:50%;left:50%;width:2px;height:13px;margin:-13px 0 0 -1px;background:linear-gradient(to bottom,var(--accent-danger) 50%,var(--text-muted) 50%);border-radius:2px;transform-origin:bottom center;will-change:transform}
+
+/* Graph */
+.accel-graph-container{background:var(--bg-glass-light);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:12px;overflow:hidden}
+.graph-title{font-size:0.75rem;font-weight:500;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px}
+#accel-canvas{width:100%;height:70px;border-radius:var(--radius-sm)}
+
+/* Tracking Controls */
+.tracking-controls{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:450;display:flex;align-items:center;gap:12px;transition:var(--transition-normal)}
+.tracking-controls.hidden{opacity:0;transform:translateX(-50%) translateY(20px);pointer-events:none}
+.btn-track{width:60px;height:60px;border-radius:50%;border:none;cursor:pointer;position:relative;overflow:hidden;transition:var(--transition-normal);box-shadow:var(--shadow-lg)}
+.btn-track-start{background:var(--gradient-primary)}
+.btn-track-start:active{transform:scale(0.93)}
+.btn-track.recording{background:var(--gradient-warm);animation:recording-pulse 2s ease-in-out infinite}
+.btn-track-inner{display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:white}
+.btn-track-secondary{width:42px;height:42px;border-radius:50%;border:none;background:var(--bg-glass);backdrop-filter:blur(10px);border:1px solid var(--border-subtle);color:var(--text-secondary);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:var(--transition-fast);box-shadow:var(--shadow-md)}
+
+/* Heading Control */
+.heading-control{position:fixed;bottom:100px;right:12px;z-index:450;display:flex;flex-direction:column;align-items:center;gap:4px;transition:var(--transition-normal)}
+.heading-control.hidden{opacity:0;transform:translateY(10px) scale(0.9);pointer-events:none}
+.heading-wheel-container{position:relative;width:100px;height:100px}
+#heading-wheel{cursor:grab;border-radius:50%;background:var(--bg-glass);backdrop-filter:blur(10px);border:1px solid var(--border-subtle);box-shadow:var(--shadow-md)}
+.heading-value{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-family:var(--font-mono);font-size:0.8rem;font-weight:600;color:var(--text-primary);pointer-events:none}
+.heading-hint{font-size:0.6rem;color:var(--text-muted);text-align:center}
+
+/* Toast */
+.toast-container{position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:600;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.toast{padding:10px 18px;background:var(--bg-glass);backdrop-filter:blur(12px);border:1px solid var(--border-subtle);border-radius:var(--radius-full);color:var(--text-primary);font-size:0.8rem;font-weight:500;box-shadow:var(--shadow-md);animation:toastIn 0.3s ease,toastOut 0.3s ease 2.7s forwards;white-space:nowrap;pointer-events:auto}
+.toast.success{border-color:rgba(16,185,129,0.3)}
+.toast.error{border-color:rgba(239,68,68,0.3)}
+.toast.info{border-color:rgba(99,102,241,0.3)}
+
+/* Scrollbar */
+.stats-panel::-webkit-scrollbar{width:3px}
+.stats-panel::-webkit-scrollbar-track{background:transparent}
+.stats-panel::-webkit-scrollbar-thumb{background:var(--text-muted);border-radius:var(--radius-full)}
+
+/* ── Compass Direction Widget ── */
+.compass-widget{position:fixed;top:62px;right:12px;z-index:490;display:flex;flex-direction:column;align-items:center;background:var(--bg-glass);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:10px 14px;box-shadow:var(--shadow-md);transition:var(--transition-normal);min-width:80px;opacity:0;transform:translateY(-10px) scale(0.95);pointer-events:none}
+.compass-widget.visible{opacity:1;transform:translateY(0) scale(1);pointer-events:auto}
+.compass-rose{width:56px;height:56px;position:relative;margin-bottom:6px}
+.compass-rose-ring{width:100%;height:100%;border-radius:50%;border:2px solid var(--border-subtle);position:relative;background:radial-gradient(circle,rgba(99,102,241,0.06) 0%,transparent 70%)}
+.compass-rose-labels{position:absolute;top:0;left:0;width:100%;height:100%;will-change:transform}
+.compass-rose-label{position:absolute;font-size:0.55rem;font-weight:700;font-family:var(--font-mono);text-align:center;width:14px;margin-left:-7px;line-height:1}
+.compass-rose-label.lbl-n{top:3px;left:50%;color:var(--accent-danger)}
+.compass-rose-label.lbl-s{bottom:3px;left:50%;color:var(--text-muted)}
+.compass-rose-label.lbl-e{right:1px;top:50%;transform:translateY(-50%);color:var(--text-muted)}
+.compass-rose-label.lbl-o{left:1px;top:50%;transform:translateY(-50%);color:var(--text-muted)}
+.compass-rose-pointer{position:absolute;top:4px;left:50%;margin-left:-4px;width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:10px solid var(--accent-primary);filter:drop-shadow(0 0 3px rgba(99,102,241,0.6));z-index:2}
+.compass-rose-center{position:absolute;top:50%;left:50%;width:6px;height:6px;margin:-3px 0 0 -3px;background:var(--accent-primary);border-radius:50%;box-shadow:0 0 6px rgba(99,102,241,0.5);z-index:2}
+.compass-dir-label{font-size:1.1rem;font-weight:800;color:var(--text-primary);letter-spacing:0.02em;line-height:1}
+.compass-dir-full{font-size:0.6rem;color:var(--text-muted);font-weight:400;margin-top:1px}
+.compass-degrees{font-family:var(--font-mono);font-size:0.7rem;color:var(--text-secondary);font-weight:500;margin-top:2px}
+@keyframes compass-glow{0%,100%{box-shadow:var(--shadow-md)}50%{box-shadow:var(--shadow-md),0 0 12px rgba(99,102,241,0.2)}}
+.compass-widget.tracking{animation:compass-glow 3s ease-in-out infinite}
+    </style>
+</head>
+<body>
+
+    <!-- Splash -->
+    <div id="splash-screen" class="splash-screen">
+        <div class="splash-content">
+            <div class="splash-icon">
+                <svg width="72" height="72" viewBox="0 0 80 80" fill="none">
+                    <circle cx="40" cy="40" r="38" stroke="url(#grad1)" stroke-width="3" fill="none" opacity="0.3"/>
+                    <circle cx="40" cy="40" r="28" stroke="url(#grad1)" stroke-width="2" fill="none" opacity="0.5"/>
+                    <circle cx="40" cy="40" r="8" fill="url(#grad1)"/>
+                    <line x1="40" y1="12" x2="40" y2="25" stroke="url(#grad1)" stroke-width="2" stroke-linecap="round"/>
+                    <line x1="40" y1="55" x2="40" y2="68" stroke="url(#grad1)" stroke-width="2" stroke-linecap="round"/>
+                    <line x1="12" y1="40" x2="25" y2="40" stroke="url(#grad1)" stroke-width="2" stroke-linecap="round"/>
+                    <line x1="55" y1="40" x2="68" y2="40" stroke="url(#grad1)" stroke-width="2" stroke-linecap="round"/>
+                    <defs><linearGradient id="grad1" x1="0" y1="0" x2="80" y2="80"><stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#06b6d4"/></linearGradient></defs>
+                </svg>
+            </div>
+            <h1 class="splash-title">StepTracker</h1>
+            <p class="splash-subtitle">Rastreo de posición por pasos</p>
+            <p class="splash-instructions">Selecciona tu posición en el mapa<br>y rastrea tu movimiento con sensores</p>
+            <button id="btn-start" class="btn-primary" onclick="dismissSplash()">
+                <span>Comenzar</span>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- Map -->
+    <div id="map"></div>
+
+    <!-- Compass Direction Widget -->
+    <div id="compass-widget" class="compass-widget">
+        <div class="compass-rose">
+            <div class="compass-rose-ring">
+                <div class="compass-rose-labels" id="compass-rose-labels">
+                    <span class="compass-rose-label lbl-n">N</span>
+                    <span class="compass-rose-label lbl-e">E</span>
+                    <span class="compass-rose-label lbl-s">S</span>
+                    <span class="compass-rose-label lbl-o">O</span>
+                </div>
+                <div class="compass-rose-pointer"></div>
+                <div class="compass-rose-center"></div>
+            </div>
+        </div>
+        <span class="compass-dir-label" id="compass-dir-label">—</span>
+        <span class="compass-dir-full" id="compass-dir-full">Sin datos</span>
+        <span class="compass-degrees" id="compass-degrees">—°</span>
+    </div>
+
+    <!-- Top Bar -->
+    <div id="top-bar" class="top-bar hidden">
+        <div class="top-bar-left">
+            <div class="status-indicator" id="tracking-indicator">
+                <span class="status-dot" id="status-dot"></span>
+                <span class="status-text" id="status-text">Toca el mapa para posicionar</span>
+            </div>
+        </div>
+        <div class="top-bar-right">
+            <button class="btn-icon" id="btn-gps" onclick="requestGPS()" title="Usar GPS">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+            </button>
+            <button class="btn-icon" id="btn-center" onclick="centerOnUser()" title="Centrar">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- Stats Panel -->
+    <div id="stats-panel" class="stats-panel hidden">
+        <div class="stats-handle" onclick="toggleStatsExpand()"><div class="handle-bar"></div></div>
+        <div class="stats-compact">
+            <div class="stat-chip">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+                <span id="stat-steps-compact">0</span><small>pasos</small>
+            </div>
+            <div class="stat-chip">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                <span id="stat-speed-compact">0.0</span><small>km/h</small>
+            </div>
+            <div class="stat-chip">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+                <span id="stat-distance-compact">0</span><small>m</small>
+            </div>
+        </div>
+        <div class="stats-expanded" id="stats-expanded">
+            <div class="stats-grid">
+                <div class="stat-card stat-card-steps">
+                    <div class="stat-card-header"><div class="stat-icon steps-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg></div><span class="stat-label">Pasos</span></div>
+                    <span class="stat-value" id="stat-steps">0</span>
+                    <div class="stat-bar"><div class="stat-bar-fill" id="steps-bar" style="width:0%"></div></div>
+                    <span class="stat-sub">Meta: 10,000</span>
+                </div>
+                <div class="stat-card stat-card-speed">
+                    <div class="stat-card-header"><div class="stat-icon speed-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></div><span class="stat-label">Velocidad</span></div>
+                    <span class="stat-value" id="stat-speed">0.0 <small>km/h</small></span>
+                    <span class="stat-sub">Máx: <span id="stat-speed-max">0.0</span> km/h</span>
+                </div>
+                <div class="stat-card stat-card-accel">
+                    <div class="stat-card-header"><div class="stat-icon accel-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div><span class="stat-label">Aceleración</span></div>
+                    <span class="stat-value" id="stat-accel">0.00 <small>m/s²</small></span>
+                    <span class="stat-sub">Pico: <span id="stat-accel-max">0.00</span> m/s²</span>
+                </div>
+                <div class="stat-card stat-card-distance">
+                    <div class="stat-card-header"><div class="stat-icon distance-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg></div><span class="stat-label">Distancia</span></div>
+                    <span class="stat-value" id="stat-distance">0 <small>m</small></span>
+                    <span class="stat-sub">≈ <span id="stat-distance-km">0.00</span> km</span>
+                </div>
+                <div class="stat-card stat-card-cadence">
+                    <div class="stat-card-header"><div class="stat-icon cadence-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><span class="stat-label">Cadencia</span></div>
+                    <span class="stat-value" id="stat-cadence">0 <small>p/min</small></span>
+                    <span class="stat-sub">Tiempo: <span id="stat-time">00:00</span></span>
+                </div>
+                <div class="stat-card stat-card-heading">
+                    <div class="stat-card-header"><div class="stat-icon heading-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg></div><span class="stat-label">Rumbo</span></div>
+                    <span class="stat-value" id="stat-heading">— <small>°</small></span>
+                    <div class="compass-mini" id="compass-mini"><div class="compass-needle" id="compass-needle"></div></div>
+                </div>
+                <div class="stat-card stat-card-calories">
+                    <div class="stat-card-header"><div class="stat-icon calories-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c-4 0-8-3.6-8-8 0-3.5 3-6.9 4.6-8.3a.9.9 0 0 1 1.3.1c.8 1 2.1 2.9 2.1 4.2 0 1.1.9 2 2 2s2-.9 2-2c0-1.3 1.3-3.2 2.1-4.2a.9.9 0 0 1 1.3-.1C21 7.1 24 10.5 24 14c0 4.4-4 8-8 8z"/></svg></div><span class="stat-label">Calorías</span></div>
+                    <span class="stat-value" id="stat-calories">0 <small>kcal</small></span>
+                    <span class="stat-sub">~0.04 kcal/paso</span>
+                </div>
+                <div class="stat-card stat-card-altitude">
+                    <div class="stat-card-header"><div class="stat-icon altitude-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3l4 8 5-5 2 15H2L8 3z"/></svg></div><span class="stat-label">Coordenadas</span></div>
+                    <span class="stat-value" id="stat-coords" style="font-size:0.75rem">— <small></small></span>
+                    <span class="stat-sub" id="stat-coords-sub">Lat, Lng</span>
+                </div>
+            </div>
+            <div class="accel-graph-container">
+                <h3 class="graph-title">Aceleración en tiempo real</h3>
+                <canvas id="accel-canvas" width="600" height="120"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tracking Controls -->
+    <div id="tracking-controls" class="tracking-controls hidden">
+        <button class="btn-track btn-track-start" id="btn-track" onclick="toggleTracking()">
+            <div class="btn-track-inner">
+                <svg id="icon-play" width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                <svg id="icon-pause" width="26" height="26" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+            </div>
+        </button>
+        <button class="btn-track-secondary" id="btn-reset" onclick="resetTracking()" title="Reiniciar">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+        </button>
+    </div>
+
+    <!-- Heading Control (manual compass) -->
+    <div id="heading-control" class="heading-control hidden">
+        <div class="heading-wheel-container">
+            <canvas id="heading-wheel" width="100" height="100"></canvas>
+            <span class="heading-value" id="heading-value">0°</span>
+        </div>
+        <p class="heading-hint">Arrastra para rumbo</p>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="mapa_base.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

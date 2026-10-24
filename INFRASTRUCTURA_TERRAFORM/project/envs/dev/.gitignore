@@ -1,0 +1,10 @@
+# Complementa project/.gitignore. Lo local de Terraform no se versiona; el lock de proveedores y los tfvars sí
+# (ARCHITECTURE §5.3: terraform.tfvars no contiene secretos).
+.terraform/
+*.tfplan
+tfplan
+plan.txt
+crash.log
+crash.*.log
+!.terraform.lock.hcl
+!terraform.tfvars
