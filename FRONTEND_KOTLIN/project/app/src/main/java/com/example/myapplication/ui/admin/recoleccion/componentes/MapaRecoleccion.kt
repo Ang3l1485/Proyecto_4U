@@ -47,6 +47,12 @@ class RecoleccionMapaControl internal constructor(internal val mapa: MapaWeb) {
     fun centrar() { if (mapa.listo) mapa.js("centrar()") }
     fun zoomMas() { if (mapa.listo) mapa.js("zoomMas()") }
     fun zoomMenos() { if (mapa.listo) mapa.js("zoomMenos()") }
+
+    /** FE-2.1 (7.5): encuadra trayectoria y fotos y deja de seguir la posición. */
+    fun encuadrar() { if (mapa.listo) mapa.js("encuadrar()") }
+
+    /** `true` cuando la página ya llamó a `listo()` (para encuadrar después de cargar fotos y trayectoria). */
+    val listo: Boolean get() = mapa.listo
 }
 
 @Composable

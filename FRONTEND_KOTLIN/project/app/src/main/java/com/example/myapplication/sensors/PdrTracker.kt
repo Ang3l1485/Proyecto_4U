@@ -7,7 +7,10 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.SystemClock
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
 import com.example.myapplication.data.repository.CalibracionPasoRepository
+import com.example.myapplication.logs.AppLog
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -68,16 +71,29 @@ sealed interface PdrEvento {
  * Longitud de paso: por defecto la calibrada del usuario (si existe) o la genérica de
  * [PdrEngine]; se lee **una vez, al crear** el tracker. Recalibrar no afecta a uno ya creado.
  * ⚠ Una longitud calibrada con el sensor de hardware ya no es válida: hay que recalibrar.
+ *
+ * Segundo plano (FE-2.3): sigue a [cicloDeVida] (por defecto el del proceso, `ProcessLifecycleOwner`). En `ON_STOP`
+ * quita los sensores aunque el rastreo siga pedido ([PdrEstado.activo] sigue en `true`) y en `ON_START` los vuelve a
+ * registrar si nadie llamó a [detener] mientras tanto ([InterruptorSensores], [ObservadorPrimerPlano]). Crear el
+ * tracker en el hilo principal (registra el observador) y llamar a [liberar] al terminar (lo quita).
+ * Una pantalla que crea el tracker en la composición (no en un ViewModel) le pasa el ciclo de vida de su entrada de la
+ * pila (`LocalLifecycleOwner.current.lifecycle`): así deja de leer sensores cuando no es la pantalla visible, aunque el
+ * proceso siga en primer plano (FE-3.1, ADR-FE-22; lo hace `MapaPublicoScreen`).
  */
 class PdrTracker(
     context: Context,
     longitudPasoM: Double = CalibracionPasoRepository(context).longitudPasoM(),
+    private val cicloDeVida: Lifecycle? = ProcessLifecycleOwner.get().lifecycle,
 ) {
 
     private val app = context.applicationContext
     private val sm = app.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private val engine = PdrEngine(longitudPasoM = longitudPasoM)
     private val detector = StepDetector()
+    private val interruptor = InterruptorSensores(
+        enPrimerPlano = cicloDeVida?.currentState?.isAtLeast(Lifecycle.State.STARTED) ?: true,
+    )
+    private var liberado = false
 
     private val _estado = MutableStateFlow(PdrEstado())
     val estado: StateFlow<PdrEstado> = _estado.asStateFlow()
@@ -88,7 +104,6 @@ class PdrTracker(
     /** Desviación de la aceleración (m/s²), ~20 Hz, para dibujar gráficas. Hilo principal. */
     var onAceleracion: ((Float) -> Unit)? = null
 
-    private var activo = false
     private var fuente = FuentePasos.NINGUNA
     private var declinacion = 0f
     private var ultimoRumboPublicadoMs = 0L
@@ -114,42 +129,67 @@ class PdrTracker(
         publicar()
     }
 
+    /**
+     * Pide rastrear. Los avisos de [eventos] (brújula, acelerómetro) se emiten aquí, una vez por llamada. Si la app
+     * está en segundo plano, los sensores se registran al volver al primer plano.
+     */
     fun iniciar() {
-        if (activo) return
-        activo = true
-        detector.reiniciar()
+        if (interruptor.pedido) return
         actualizarDeclinacion()
 
-        val rotacion = sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
-        if (rotacion != null) {
-            sm.registerListener(listenerRumbo, rotacion, SensorManager.SENSOR_DELAY_GAME)
-        }
-        _eventos.tryEmit(PdrEvento.Brujula(rotacion != null))
-
+        val hayRotacion = sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR) != null
         // Pasos: siempre por acelerómetro (sin permiso, sin la latencia del sensor de hardware).
-        val acelerometro = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-        if (acelerometro != null) {
-            fuente = FuentePasos.ACELEROMETRO
-            sm.registerListener(listenerAcel, acelerometro, SensorManager.SENSOR_DELAY_GAME)
-        } else {
-            fuente = FuentePasos.ACELEROMETRO_SIN_SENSOR
-            _eventos.tryEmit(PdrEvento.PasosPorAcelerometro("no_sensor"))
-        }
+        val hayAcelerometro = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null
+        fuente = if (hayAcelerometro) FuentePasos.ACELEROMETRO else FuentePasos.ACELEROMETRO_SIN_SENSOR
+
+        val cambio = interruptor.iniciar()
+        aplicar(cambio, "iniciar")
+        if (cambio == CambioSensores.NINGUNO) AppLog.i(TAG, "rastreo pedido en segundo plano: sensores al volver")
+        _eventos.tryEmit(PdrEvento.Brujula(hayRotacion))
+        if (!hayAcelerometro) _eventos.tryEmit(PdrEvento.PasosPorAcelerometro("no_sensor"))
         publicar()
     }
 
+    /** Deja de rastrear: quita los sensores y ya no vuelven solos al primer plano. No borra la posición. */
     fun detener() {
-        if (!activo) return
-        activo = false
-        sm.unregisterListener(listenerRumbo)
-        sm.unregisterListener(listenerAcel)
+        if (!interruptor.pedido) return
+        aplicar(interruptor.detener(), "detener")
         publicar()
     }
 
-    /** Llamar al destruir la pantalla que lo creó. */
+    /** Llamar al destruir la pantalla (o el ViewModel) que lo creó, en el hilo principal. */
     fun liberar() {
         detener()
         onAceleracion = null
+        if (!liberado) {
+            liberado = true
+            cicloDeVida?.removeObserver(observadorCiclo)
+        }
+    }
+
+    // ── Registro de sensores ───────────────────
+
+    private fun aplicar(cambio: CambioSensores, motivo: String) {
+        when (cambio) {
+            CambioSensores.REGISTRAR -> registrarSensores(motivo)
+            CambioSensores.QUITAR -> quitarSensores(motivo)
+            CambioSensores.NINGUNO -> Unit
+        }
+    }
+
+    private fun registrarSensores(motivo: String) {
+        detector.reiniciar()
+        val rotacion = sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+        if (rotacion != null) sm.registerListener(listenerRumbo, rotacion, SensorManager.SENSOR_DELAY_GAME)
+        val acelerometro = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        if (acelerometro != null) sm.registerListener(listenerAcel, acelerometro, SensorManager.SENSOR_DELAY_GAME)
+        AppLog.i(TAG, "sensores registrados ($motivo; rotación ${rotacion != null}, acelerómetro ${acelerometro != null})")
+    }
+
+    private fun quitarSensores(motivo: String) {
+        sm.unregisterListener(listenerRumbo)
+        sm.unregisterListener(listenerAcel)
+        AppLog.i(TAG, "sensores quitados ($motivo)")
     }
 
     // ── Sensores ───────────────────────────────
@@ -203,9 +243,23 @@ class PdrTracker(
             pasos = engine.pasos,
             distanciaMetros = engine.distanciaMetros,
             velocidadMps = engine.velocidadMps,
-            activo = activo,
+            activo = interruptor.pedido,
             fuentePasos = fuente,
         )
+    }
+
+    // ── Ciclo de vida (FE-2.3; ObservadorPrimerPlano desde FE-3.1) ─────
+    // Va al final: el observador y los listeners deben existir antes de registrarlo (addObserver en un ciclo ya
+    // iniciado entrega ON_CREATE y ON_START en el acto; sin rastreo pedido no cambian nada).
+
+    private val observadorCiclo = ObservadorPrimerPlano(interruptor) { cambio, motivo -> aplicar(cambio, motivo) }
+
+    init {
+        cicloDeVida?.addObserver(observadorCiclo)
+    }
+
+    private companion object {
+        const val TAG = "Pdr"
     }
 }
 

@@ -81,6 +81,8 @@ data class RecoleccionUiState(
     /** Borrador del formulario de alerta (`AlertaFormSheet`); `null` = cerrado. */
     val formularioAlerta: Alerta? = null,
     val errorAlerta: String? = null,
+    /** FE-3.3: error de la vigencia del formulario de alerta. */
+    val errorVigenciaAlerta: String? = null,
 ) {
     val reubicando: Boolean get() = reanclaje != null
     val enCurso: Boolean get() = fase == FaseRecoleccion.GRABANDO || fase == FaseRecoleccion.PAUSADA
