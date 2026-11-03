@@ -4,7 +4,7 @@ Qué se construye y en qué orden. **Cómo** funciona cada pieza está en [`ARCH
 **por qué y cuándo** cambió algo, en [`CHANGELOG.md`](./CHANGELOG.md); **cómo se comprueba** cada lote, en
 [`validation/`](./validation/).
 
-Alineado con `ARCHITECTURE.md` **v0.5.0**.
+Alineado con `ARCHITECTURE.md` **v0.15.1**.
 
 ---
 
@@ -42,7 +42,7 @@ Alineado con `ARCHITECTURE.md` **v0.5.0**.
 | 0 — Cimientos | Cuenta, estado remoto, CI y control de gasto. En la app, además, el prototipo ya construido con datos locales | Un PR de Terraform produce un `plan` automático y hay presupuesto con avisos |
 | 1 — Plataforma mínima en línea | La app llega por HTTPS a un backend real con base de datos | `GET /v1/health` responde desde la URL pública y el admin inicia sesión con un JWT real |
 | 2 — Dataset | Un recorrido grabado en la app termina indexado | Las fotos de un video subido quedan `procesada` con su vector en pgvector |
-| 3 — Ubicarse | Una vuelta de 360° devuelve una posición útil | `POST /v1/localize` responde con posición y confianza en un punto conocido del campus |
+| 3 — Ubicarse | Una vuelta de 360° devuelve una posición útil | `POST /v1/localize` responde con posición y confianza en un punto conocido del campus, en menos de 1 s en el servidor con `embedding` encendido |
 | 4 — Administración completa | El admin gestiona dataset, lugares y alertas contra el backend | Las vistas de admin dejan de usar datos locales o *stubs* |
 | 5 — Navegación guiada (diferida) | Guía por voz hasta un destino, con corrección visual | — |
 | 6 — Endurecimiento y producción (diferida) | Entorno `prod` confiable | — |
@@ -57,7 +57,7 @@ Alineado con `ARCHITECTURE.md` **v0.5.0**.
 | INF-1.2 | Datos y secretos | INF-1.1 | INF-1.1 | [`validation-1-2`](./validation/validation-1-2.md) |
 | INF-1.3 | Cómputo (ECR, ECS, Cloud Map, IAM de tareas) | INF-1.2 | INF-1.2 | [`validation-1-3`](./validation/validation-1-3.md) |
 | INF-1.4 | Borde HTTPS (API Gateway) | INF-1.3 | INF-1.3 | [`validation-1-4`](./validation/validation-1-4.md) |
-| INF-2.1 | Escalado del `worker` y horario de `dev` | INF-1.3 | INF-1.3 | [`validation-2-1`](./validation/validation-2-1.md) |
+| INF-2.1 | Encendido de `embedding` y escalado del `worker` | INF-1.3, INF-1.4 | INF-1.3, INF-1.4 | [`validation-2-1`](./validation/validation-2-1.md) |
 | INF-3.1 | Observabilidad y alarmas | INF-1.4 | INF-1.4, INF-2.1 | [`validation-3-1`](./validation/validation-3-1.md) |
 | INF-6.1 | Entorno `prod` y optimizaciones (diferido) | Fases 1–4 cerradas | — | — |
 
@@ -118,20 +118,28 @@ falta un contenedor se usa una **imagen de prueba** que responde `GET /v1/health
 
 #### INF-1.2 — Datos y secretos
 - **Objetivo:** RDS, bucket del dataset, colas y secretos listos para que el backend migre y la app suba fotos.
-- **Entregables:** módulos `datos` y `secretos` según §3.5, §5.4, §5.5 y §5.6.
+- **Entregables:** módulos `datos` y `secretos` según §3.5, §3.6, §5.4, §5.5 y §5.6 (entradas y salidas en §5.12); en
+  `envs/dev`, las variables `rds_clase`, `rds_gb`, `rds_gb_max` y `pg_version` (§5.3), el proveedor `hashicorp/random`
+  en el lock y los outputs `bucket_dataset`, `sqs_ingesta_url`, `sqs_purga_url`, `sqs_ingesta_dlq_url`,
+  `sqs_purga_dlq_url`, `rds_endpoint` y `secretos` (§5.2); `src/ops/validate12.py`.
 - **Criterios de cierre:**
   - C1. Subir un `.jpg` a `dataset/` deja un mensaje en `ingesta` con la clave correcta.
   - C2. Un `.png`, o un `.jpg` fuera de `dataset/`, no deja mensaje.
   - C3. RDS no es accesible desde internet (sin IP pública, sin regla entrante abierta) y exige TLS.
   - C4. La versión del motor es 17.1 o superior (la que trae pgvector 0.8 en RDS).
-  - C5. Los tres secretos existen con las claves de §5.4; bucket y colas tienen los atributos de §5.5 y §5.6.
+  - C5. Los tres secretos existen con las claves de §5.4; instancia, bucket y colas tienen los atributos de §3.5,
+    §5.5, §5.6 y §5.10.
+  - C6. Instancia, grupos de parámetros y de subredes, bucket, colas y secretos llevan las etiquetas de §5.1.
 - **Historias:** habilita HU-13, HU-14, HU-23.
 
 #### INF-1.3 — Cómputo
-- **Objetivo:** clúster, repositorios, roles y servicios listos para recibir imágenes.
+- **Objetivo:** clúster, repositorios, roles y servicios listos para recibir imágenes, con `embedding` en
+  Fargate (ADR-INF-14).
 - **Entregables:** módulo `computo` (§3.4, §5.1, §5.7, §5.8; sus roles con `permissions_boundary` = output
-  `limite_roles_arn` de `bootstrap`), incluida la tarea de validación; imagen de prueba
-  `bootstrap` (`project/pruebas/imagen-prueba/`, §5.11) publicada en los dos repositorios; outputs de §5.2.
+  `limite_roles_arn` de `bootstrap`, leído con `terraform_remote_state`), incluida la tarea de validación y los
+  *log groups* de los procesos; en `envs/dev`, la variable `imagen_inicial_tag` (§5.3) y los outputs de §5.2; imagen de
+  prueba `bootstrap` (`project/pruebas/imagen-prueba/`, §5.11) publicada en los dos repositorios;
+  `src/ops/validate13.py`.
 - **Criterios de cierre:**
   - C1. Con la imagen de prueba, el servicio `api` queda estable y se registra en Cloud Map con SRV.
   - C2. `embedding.campus-locator.local` resuelve desde la tarea de validación.
@@ -140,31 +148,55 @@ falta un contenedor se usa una **imagen de prueba** que responde `GET /v1/health
     y apuntan a recursos reales.
   - C5. Desde la tarea de validación (§5.11), la base acepta conexión con TLS y
     `CREATE EXTENSION IF NOT EXISTS vector` funciona.
+  - C6. Con `embedding` en 1, su tarea corre en Fargate con 2 vCPU y 4 GB y queda estable.
 - **Historias:** HU-20.
 
 #### INF-1.4 — Borde HTTPS
 - **Objetivo:** URL pública HTTPS que llegue a `api`.
-- **Entregables:** módulo `borde`; output `api_base_url`.
+- **Entregables:** módulo `borde` (§3.3, §5.1, §5.7, §5.10; entradas, salidas y recursos en §5.12), con su *log group*
+  `/campus-locator/dev/apigw` y `prevent_destroy` en la API (R8); output `cloud_map_api_arn` de `computo`; en
+  `envs/dev`, el output `api_base_url` (§5.2); `src/ops/validate14.py`.
 - **Criterios de cierre:**
   - C1. `GET {api_base_url}/v1/health` devuelve 200 desde fuera de AWS (imagen de prueba o la de BE-1.1).
-  - C2. Más de 2 req/s sostenidas a `POST /v1/auth/login` reciben 429; la ruta general no.
+  - C2. `POST /v1/auth/login` tiene su throttling de §5.10 en la etapa, y a 20 req/s sostenidas recibe 429 (al menos el
+    10 %); la ruta general, a 10 req/s, no recibe ninguno. (API Gateway aplica los límites de forma aproximada: a pocas
+    req/s por encima de 2 casi no hay 429; ARCHITECTURE §3.3.)
   - C3. Los *access logs* aparecen en `/campus-locator/dev/apigw`.
 - **Historias:** HU-09, HU-10.
 
-#### INF-2.1 — Escalado del `worker` y horario de `dev`
-- **Objetivo:** pagar `embedding` y `worker` solo cuando se usan.
-- **Entregables:** acciones programadas y política por pasos (§3.4, §5.10).
+#### INF-2.1 — Encendido de `embedding` y escalado del `worker`
+- **Objetivo:** pagar `embedding` solo mientras se usa, y `worker` solo cuando hay trabajo (ADR-INF-14).
+- **Entregables:** `src/ops/embedding.py` (`encender`, `apagar`, `estado`; contrato de encendido en §5.10); en
+  `borde`, el filtro de métricas `campus-locator-dev-localize`; en `computo` (`escalado.tf`), los objetivos escalables
+  de `embedding` y `worker`, la alarma `campus-locator-dev-embedding-inactivo` y la política
+  `campus-locator-dev-embedding-apagar`, las alarmas `campus-locator-dev-worker-cola-ingesta`, `-worker-cola-purga` y
+  `-worker-colas-vacias` con las políticas por pasos `campus-locator-dev-worker-cola` y `-worker-colas-vacias` (la
+  subida exige `embedding` corriendo), y las acciones programadas `campus-locator-dev-embedding-apagar-noche` y
+  `campus-locator-dev-worker-apagar-noche`; en `envs/dev`, la variable `apagado_embedding` y `local.metrica_localize`;
+  rol vinculado `AWSServiceRoleForApplicationAutoScaling_ECSService` (a mano, §3.1); `src/ops/validate21.py`
+  (§3.4, §5.1, §5.3, §5.10, §5.12, ADR-INF-15).
 - **Criterios de cierre:**
-  - C1. Las acciones programadas existen con la zona y las horas de §5.3; a la hora de apagar `embedding` queda en 0 y a
-    la de encender vuelve a 1.
-  - C2. Con mensajes de prueba en `ingesta`, `worker` sube a 1 y vuelve a 0 a los ~15 min de vaciarse la cola.
-  - C3. Fuera del horario, `worker` no arranca aunque haya mensajes.
+  - C1. `embedding.py encender` deja `embedding` sano en ≤ 10 min; `embedding.py apagar` lo deja en 0 y deja `worker`
+    en 0.
+  - C2. El apagado automático está configurado: el filtro de métricas cuenta solo `POST /v1/localize`; la alarma de
+    inactividad mira ese uso, los encendidos y las colas durante `apagado_embedding.inactividad_min`, y su acción pone
+    `embedding` en 0; las acciones de las 22:00 existen con la zona y la hora de §5.3.
+  - C3. El escalado de `worker` está configurado: sube a 1 con mensajes en `ingesta` o `purga` solo si `embedding`
+    está corriendo, y baja a 0 tras 15 min sin mensajes.
+  - Observar ese comportamiento en `dev` (el apagado tras 45 min sin uso, la subida y bajada de `worker` y que no
+    arranque sin `embedding`) es opcional y no cierra el lote: `validation-2-1` C2b, C3b y C4, ~1,5 h. Decisión del
+    2026-10-25 (CHANGELOG 0.13.1).
 - **Historias:** HU-21.
 
 #### INF-3.1 — Observabilidad y alarmas
 - **Objetivo:** enterarse de los fallos sin mirar la consola.
-- **Entregables:** módulo `observabilidad` (topic SNS, suscripción, alarmas de §5.10, regla de EventBridge de §3.8) y
-  output `sns_alertas_arn`.
+- **Entregables:** módulo `observabilidad` (topic SNS sin cifrar con su política, suscripción por correo a
+  `correo_alertas`, las 6 alarmas de §5.10 y la regla de EventBridge de §3.8 con el topic como destino; entradas,
+  salidas y recursos en §5.12); outputs de módulo `api_id` (`borde`), `cluster_arn` (`computo`) y `rds_identificador`
+  (`datos`); en `envs/dev`, la variable `correo_alertas` (§5.3) y el output `sns_alertas_arn` (§5.2); `LectorCola`
+  movida de `validate21.py` a `comun.py` (§5.11); `src/ops/validate31.py` y sus pruebas en `tests/ops/` con el grupo
+  `pruebas` del `pyproject.toml` (§3.8, §3.10, §5.1, §5.6, §5.10, §5.11, §5.12, ADR-INF-16). Después del `apply`, la
+  persona dueña de `correo_alertas` confirma la suscripción desde el correo de SNS.
 - **Criterios de cierre:**
   - C1. Existen todas las alarmas de §5.10 apuntando al topic, con los nombres de §5.1, y la suscripción por correo
     está confirmada.
@@ -173,9 +205,9 @@ falta un contenedor se usa una **imagen de prueba** que responde `GET /v1/health
 - **Historias:** HU-22.
 
 #### INF-6.1 — Entorno `prod` y optimizaciones (diferido)
-- **Alcance previsto:** `envs/prod`, RDS Multi-AZ, *interface endpoints* o NAT con tareas en subredes privadas,
-  dominio propio con certificado de ACM, WAF en la API, Graviton (ARM64) si las imágenes lo permiten, rotación de la
-  contraseña de la base, ejecución de los validadores en CI.
+- **Alcance previsto:** `envs/prod`, RDS Multi-AZ, *interface endpoints* o NAT con tareas en subredes privadas, dominio
+  propio con certificado de ACM, WAF en la API, Graviton (ARM64) para los tres servicios si las imágenes lo permiten,
+  rotación de la contraseña de la base, ejecución de los validadores en CI.
 - **Requiere decidir antes:** presupuesto de `prod`, dominio, decisión abierta 1 del frontend (proveedor de teselas).
 - **Historias:** HU-20, HU-21, HU-22.
 
@@ -188,14 +220,14 @@ falta un contenedor se usa una **imagen de prueba** que responde `GET /v1/health
 
 | Lote | Fase | Estado | Validación | Última validación | Versión de ARCHITECTURE al cerrar | Nota |
 |---|---|---|---|---|---|---|
-| INF-0.1 | 0 | Hecho | [0-1](./validation/validation-0-1.md) | `b20a62f` 2026-10-24 | 0.3.0 | `sub` inmutable de OIDC (`github_ids`); proveedor OIDC importado de un intento anterior |
-| INF-0.2 | 0 | Hecho | [0-2](./validation/validation-0-2.md) | `c677aeb` 2026-10-24 | 0.4.0 | Primer `apply` de `envs/dev` hecho por `infra.yml`; C3b toma el bloqueo él mismo (`terraform console` ya no lo toma desde Terraform 1.15) |
-| INF-1.1 | 1 | En curso | [1-1](./validation/validation-1-1.md) | — | — | Código escrito; faltan el `apply` desde `main` y `validate11.py` en `dev` |
-| INF-1.2 | 1 | Pendiente | [1-2](./validation/validation-1-2.md) | — | — | Antes: el bucket `campus-locator-dev-dataset-648617469176` ya existe (intento anterior, ARCHITECTURE R11) |
-| INF-1.3 | 1 | Pendiente | [1-3](./validation/validation-1-3.md) | — | — | |
-| INF-1.4 | 1 | Pendiente | [1-4](./validation/validation-1-4.md) | — | — | |
-| INF-2.1 | 2 | Pendiente | [2-1](./validation/validation-2-1.md) | — | — | |
-| INF-3.1 | 3 | Pendiente | [3-1](./validation/validation-3-1.md) | — | — | |
+| INF-0.1 | 0 | Hecho | [0-1](./validation/validation-0-1.md) | `fbe68f8` 2026-10-24 | 0.3.0 | `sub` inmutable de OIDC (`github_ids`); proveedor OIDC importado de un intento anterior |
+| INF-0.2 | 0 | Hecho | [0-2](./validation/validation-0-2.md) | `fad2b6b` 2026-10-24 | 0.4.0 | Primer `apply` de `envs/dev` hecho por `infra.yml`; C3b toma el bloqueo él mismo (`terraform console` ya no lo toma desde Terraform 1.15) |
+| INF-1.1 | 1 | Hecho | [1-1](./validation/validation-1-1.md) | `4c04040` 2026-10-24 | 0.5.0 | `apply` de la red por `infra.yml` (29 recursos); antes hubo que cancelar una ejecución de `main` de un commit sobrescrito que esperaba aprobación y retenía la fila |
+| INF-1.2 | 1 | Hecho | [1-2](./validation/validation-1-2.md) | `e5ee713` 2026-10-24 | 0.6.0 | `apply` por `infra.yml` (24 recursos, PostgreSQL 17.9); el «plan vacío» destapó una diferencia perpetua en `rds.force_ssl` (es el valor por defecto en PostgreSQL 17), corregida con `apply_method = "pending-reboot"` |
+| INF-1.3 | 1 | Hecho | [1-3](./validation/validation-1-3.md) | `a0f2dc5` 2026-10-24 | 0.10.0 | `apply` por `infra.yml` (30 recursos) y `plan` vacío después; imagen `bootstrap` publicada a mano en los dos repositorios. La primera ejecución destapó un error del validador (C5 esperaba `t`; `boolean \|\| text` da `true`), corregido en `a0f2dc5`. `embedding` en Fargate con 2 vCPU (ADR-INF-14) |
+| INF-1.4 | 1 | Hecho | [1-4](./validation/validation-1-4.md) | `13d80fe` 2026-10-24 | 0.11.1 | `apply` por `infra.yml` (7 recursos) y `plan` vacío después. La primera ejecución falló en C2b (1 de 100 con 429 a 5 req/s, con la etapa bien configurada): el *throttling* de API Gateway es aproximado; C2b pasó a 20 req/s con ≥ 10 % de 429 (0.11.1) |
+| INF-2.1 | 2 | Hecho | [2-1](./validation/validation-2-1.md) | `684f233` 2026-10-25 | 0.13.1 | `apply` por `infra.yml` sobre `6b6b8e7` (12 recursos) y `plan` vacío después; rol vinculado de Application Auto Scaling creado a mano. Cerrado con C1, C2a y C3a (`--solo C1,C2a,C3a`; C1a sano en 5,7 min): el apagado automático y el escalado están configurados, pero observarlos en `dev` (C2b, C3b y C4) es opcional desde 0.13.1 |
+| INF-3.1 | 3 | Hecho | [3-1](./validation/validation-3-1.md) | `91bac0a` 2026-10-26 | 0.15.1 | `apply` por `infra.yml` (11 recursos) y suscripción confirmada desde el correo. La primera ejecución (`8c98f90`) falló en C3: ECS rechaza `group = service:worker` en `RunTask` («Invalid namespace for group.»); 0.15.0 añadió a la regla una rama `startedBy = validacion-3-1` (`apply`: 1 cambio, solo el `event_pattern`) y C1b prueba la de los servicios con `TestEventPattern`. Cerrado con todo en `dev` (C3b: EventBridge publica con `aws:SourceArn`); C2b con captura del correo, C3c confirmado por el usuario por escrito |
 | INF-6.1 | 6 | Diferido | — | — | — | |
 
 ---

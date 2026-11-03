@@ -40,3 +40,51 @@ variable "az_secundaria" {
   type        = string
   description = "Segunda zona, solo para publica-b y privada-b (§5.3)."
 }
+
+# INF-1.2
+variable "rds_clase" {
+  type        = string
+  description = "Clase de la instancia de RDS."
+}
+
+variable "rds_gb" {
+  type        = number
+  description = "Almacenamiento inicial de RDS en GB (gp3)."
+}
+
+variable "rds_gb_max" {
+  type        = number
+  description = "Tope del autoescalado de almacenamiento de RDS en GB."
+}
+
+variable "pg_version" {
+  type        = string
+  description = "Version mayor de PostgreSQL (solo el numero); RDS elige la menor (>= 17.1 para pgvector 0.8)."
+}
+
+# INF-1.3
+variable "imagen_inicial_tag" {
+  type        = string
+  description = "Etiqueta de imagen de las definiciones de tarea que crea Terraform (imagen de prueba bootstrap, §5.11); CI la reemplaza."
+}
+
+# INF-2.1
+variable "apagado_embedding" {
+  type = object({
+    zona            = string
+    noche           = optional(string)
+    inactividad_min = number
+  })
+  description = "Apagado automatico de embedding (§5.3): zona IANA y cron de la accion nocturna (null = sin ella) y minutos sin uso antes de apagarlo."
+}
+
+# INF-3.1
+variable "correo_alertas" {
+  type        = string
+  description = "Correo suscrito al topic de alarmas (§5.3); el mismo de bootstrap/terraform.tfvars (presupuesto)."
+
+  validation {
+    condition     = can(regex("^[^@\\s<>]+@[^@\\s<>]+\\.[^@\\s<>]+$", var.correo_alertas))
+    error_message = "correo_alertas debe ser una dirección de correo (ARCHITECTURE §5.3)."
+  }
+}
