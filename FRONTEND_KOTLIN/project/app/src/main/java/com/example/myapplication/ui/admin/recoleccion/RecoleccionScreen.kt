@@ -158,7 +158,8 @@ fun RecoleccionScreen(
         }
     }
 
-    // ON_STOP: pausa sola (el PDR no maneja ON_STOP por sí mismo, 11.2).
+    // ON_STOP: pausa sola y guarda el progreso. El PdrTracker ya quita sus sensores en segundo plano (FE-2.3);
+    // la pausa además para el reloj y las capturas.
     DisposableEffect(ciclo, vm) {
         val observador = LifecycleEventObserver { _, e -> if (e == Lifecycle.Event.ON_STOP) vm.alIrASegundoPlano() }
         ciclo.lifecycle.addObserver(observador)
@@ -213,6 +214,7 @@ fun RecoleccionScreen(
             alerta = alerta, esNueva = true, error = ui.errorAlerta,
             onCambio = vm::alActualizarAlerta, onGuardar = vm::alGuardarAlerta,
             onCancelar = vm::alCancelarAlerta, onEliminar = vm::alCancelarAlerta,
+            errorVigencia = ui.errorVigenciaAlerta,   // FE-3.3; sin «Ajustar en el mapa»: es la posición del PDR
         )
     }
 

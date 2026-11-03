@@ -4,13 +4,15 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.example.myapplication.data.repository.AssetsVideoRepository
 import com.example.myapplication.data.repository.LugaresRepository
 import com.example.myapplication.data.repository.LugaresRepositoryStub
 import com.example.myapplication.data.repository.VideoRepository
+import com.example.myapplication.data.repository.VideoRepositoryCompuesto
 import com.example.myapplication.domain.model.Foto
 import com.example.myapplication.domain.model.InicioRecoleccion
+import com.example.myapplication.domain.model.ResumenVideo
 import com.example.myapplication.domain.model.Video
+import com.example.myapplication.domain.usecase.Fechas
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,6 +21,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 
 /**
@@ -64,22 +67,56 @@ class UbicacionManualViewModel(
         if (_ui.value.confirmando) _ui.update { it.copy(confirmando = false) }
     }
 
+    /**
+     * FE-4.1: primero los recorridos **del teléfono** (sin red: la recolección nunca espera al servidor); después, con
+     * [LIMITE_SERVIDOR_MS] como mucho, los videos **del servidor**: sus nombres entran en el autonumerado y, si el más
+     * reciente es del servidor, se pide su detalle para su última foto. Sin red (o si tarda) se queda con lo del teléfono.
+     * No pisa un nombre que la persona ya cambió ni una posición que ya aplicó.
+     */
     private suspend fun cargarVideos() {
-        val lista = try {
-            videos.obtenerVideos()
+        val locales = try {
+            videos.recorridosDelTelefono()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             null // sin historial: se puede fijar el punto a mano; "última posición" queda deshabilitada
         }
+        aplicarHistorial(siguienteNombre(locales.orEmpty().map { it.nombre }), locales?.let(::calcularUltimaPosicion))
+
+        val servidor = withTimeoutOrNull(LIMITE_SERVIDOR_MS) {
+            try {
+                videos.listarVideos().let { if (it.errorServidor == null) it.servidor else null }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+        } ?: return
+        val nombres = locales.orEmpty().map { it.nombre } + servidor.map { it.nombre }
+        val reciente = masRecienteDelServidor(locales.orEmpty(), servidor)
+        val ultima = reciente?.let { id ->
+            withTimeoutOrNull(LIMITE_SERVIDOR_MS) {
+                try {
+                    videos.obtenerVideo(id)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    null
+                }
+            }?.let { calcularUltimaPosicion(listOf(it)) }
+        }
+        aplicarHistorial(siguienteNombre(nombres), ultima ?: locales?.let(::calcularUltimaPosicion))
+    }
+
+    private fun aplicarHistorial(sugerido: String, ultima: UltimaPosicion?) {
         _ui.update { s ->
-            val sugerido = siguienteNombre(lista.orEmpty())
             s.copy(
                 cargandoUltima = false,
-                ultimaPosicion = lista?.let(::calcularUltimaPosicion),
+                // Una posición que la persona ya tomó no cambia por debajo.
+                ultimaPosicion = if (s.ultimaAplicada) s.ultimaPosicion else ultima ?: s.ultimaPosicion,
                 nombreSugerido = sugerido,
                 // No pisa lo que la persona ya haya escrito mientras cargaba.
-                nombreVideo = s.nombreVideo.ifEmpty { sugerido },
+                nombreVideo = if (s.nombreVideo.isEmpty() || s.nombreVideo == s.nombreSugerido) sugerido else s.nombreVideo,
             )
         }
     }
@@ -224,9 +261,16 @@ class UbicacionManualViewModel(
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
             UbicacionManualViewModel(
-                videos = AssetsVideoRepository(appContext),
+                // FE-4.1: los recorridos del teléfono y, con red, los videos del servidor (última posición y nombre
+                // autonumerado sin repetir). Los de `assets/videos/` ya no existen.
+                videos = VideoRepositoryCompuesto.deLaApp(),
                 lugares = LugaresRepositoryStub(),
             ) as T
+    }
+
+    companion object {
+        /** Lo que 7.3 espera al servidor (lista y detalle) antes de quedarse con lo del teléfono. */
+        const val LIMITE_SERVIDOR_MS = 8_000L
     }
 }
 
@@ -277,29 +321,49 @@ internal fun parsearCoordenada(texto: String, limite: Double): Double? {
 private val PATRON_NOMBRE = Regex("""^video[_\s-]?(\d+)$""", RegexOption.IGNORE_CASE)
 
 /**
- * "video_N+1", donde N es el mayor número entre los videos llamados "video3", "video_3"…
- * Si ninguno sigue ese patrón (p. ej. se renombraron todos) usa la cantidad de videos.
- * Salta los nombres ya usados.
+ * "video_N+1", donde N es el mayor número entre los [nombres] "video3", "video_3"…
+ * Si ninguno sigue ese patrón (p. ej. se renombraron todos) usa la cantidad de nombres.
+ * Salta los nombres ya usados. FE-4.1: recibe nombres (del teléfono y, con red, del servidor; un recorrido subido sale
+ * en los dos con el mismo nombre, y eso no cambia el resultado salvo en el caso de «la cantidad»).
  */
-internal fun siguienteNombre(videos: List<Video>): String {
-    val usados = videos.map { it.nombre.trim().lowercase() }.toSet()
-    val mayor = videos
-        .mapNotNull { PATRON_NOMBRE.matchEntire(it.nombre.trim())?.groupValues?.get(1)?.toIntOrNull() }
+internal fun siguienteNombre(nombres: List<String>): String {
+    val usados = nombres.map { it.trim().lowercase() }.toSet()
+    val mayor = nombres
+        .mapNotNull { PATRON_NOMBRE.matchEntire(it.trim())?.groupValues?.get(1)?.toIntOrNull() }
         .maxOrNull()
-    var n = (mayor ?: videos.size) + 1
+    var n = (mayor ?: usados.size) + 1
     while ("$PREFIJO_VIDEO$n".lowercase() in usados) n++
     return "$PREFIJO_VIDEO$n"
 }
 
+/** Fin de un video para compararlos: `finalizado_en`/`ended_at` o, sin él, `creadoEn`, en ms (`null` sin fecha). */
+private fun finMs(finalizadoEn: String?, creadoEn: String?): Long? = Fechas.aMilis(finalizadoEn) ?: Fechas.aMilis(creadoEn)
+
 /**
- * Última foto del video más reciente que tenga fotos. "Reciente" = mayor `creadoEn` (ISO-8601 ordena
- * como texto); en empate o sin fecha, el último de la lista. Lo mismo para elegir la última foto.
+ * FE-4.1: el id del video del **servidor** que terminó después que todos los recorridos del teléfono con fotos (por
+ * `finalizado_en`, o `creado_en` si falta), o `null` si el más reciente es del teléfono (empate: el del teléfono, que
+ * no necesita red) o no hay fechas. Un video sin fotos registradas no cuenta.
+ */
+internal fun masRecienteDelServidor(locales: List<Video>, servidor: List<ResumenVideo>): String? {
+    val local = locales.filter { it.fotos.isNotEmpty() }.mapNotNull { finMs(it.finalizadoEn, it.creadoEn) }.maxOrNull()
+    val remoto = servidor.filter { it.fotos > 0 }
+        .mapNotNull { v -> finMs(v.finalizadoEn, v.creadoEn)?.let { v to it } }
+        .maxByOrNull { it.second } ?: return null
+    return if (local == null || remoto.second > local) remoto.first.id else null
+}
+
+/**
+ * Última foto del video más reciente que tenga fotos. "Reciente" = mayor fin (`finalizadoEn` o, sin él, `creadoEn`,
+ * comparados en milisegundos desde FE-4.1: el servidor da UTC con `Z` y el teléfono su zona); en empate o sin fecha, el
+ * último de la lista. La última foto, la de mayor `capturadaEn` (texto; en empate, la última).
  */
 internal fun calcularUltimaPosicion(videos: List<Video>): UltimaPosicion? {
     val video = videos
         .withIndex()
         .filter { it.value.fotos.isNotEmpty() }
-        .maxWithOrNull(compareBy<IndexedValue<Video>>({ it.value.creadoEn.orEmpty() }, { it.index }))
+        .maxWithOrNull(
+            compareBy<IndexedValue<Video>>({ finMs(it.value.finalizadoEn, it.value.creadoEn) ?: Long.MIN_VALUE }, { it.index }),
+        )
         ?.value ?: return null
     val foto: Foto = video.fotos
         .withIndex()

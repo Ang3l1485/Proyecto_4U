@@ -86,4 +86,9 @@ data class UbicacionManualAcciones(
     val onCancelar: () -> Unit = {},
     val onConfirmar: () -> Unit = {},
     val onCalibrar: () -> Unit = {},
+    /** FE-2.3: abrir 7.4 para retomar la grabación que quedó `en_curso`. */
+    val onRetomar: () -> Unit = {},
 )
+
+/** FE-2.3: grabación que quedó `en_curso` en el teléfono (la app se cerró sin finalizarla). La lee la pantalla. */
+data class GrabacionPendiente(val nombre: String, val fotos: Int)

@@ -60,6 +60,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -110,12 +111,14 @@ import com.example.myapplication.map.PuenteWeb
 import com.example.myapplication.map.literalJs
 import com.example.myapplication.map.rememberMapaWeb
 import com.example.myapplication.data.repository.CalibracionPasoRepository
+import com.example.myapplication.data.repository.RecoleccionRepositoryLocal
 import com.example.myapplication.sensors.EscucharOrientacion
 import com.example.myapplication.sensors.PdrEngine
 import com.example.myapplication.sensors.tieneSensorRotacion
 import com.example.myapplication.ui.destino.componentes.BotonIcono
 import com.example.myapplication.ui.destino.componentes.tarjeta
 import com.example.myapplication.ui.theme.CampusColors
+import kotlinx.coroutines.CancellationException
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.atan2
@@ -128,6 +131,9 @@ private val C = CampusColors
 
 /** El mock usa rosa para Cancelar; `CampusColors.Peligro` es morado (11.4), así que va aparte. */
 private val ColorCancelar = Color(0xFFFF4D7D)
+
+/** Ámbar de los avisos (como `ColorAviso` de 7.4): «Retomar» una grabación sin finalizar (FE-2.3). */
+private val ColorPendiente = Color(0xFFF59E0B)
 
 private const val GRADOS_POR_PASO = 15f
 
@@ -147,6 +153,7 @@ fun UbicacionManualScreen(
     onConfirmar: (InicioRecoleccion) -> Unit,
     onAjustes: () -> Unit = {},
     onCalibrar: () -> Unit = {},
+    onRetomar: () -> Unit = {},
     viewModel: UbicacionManualViewModel = viewModel(
         factory = UbicacionManualViewModel.Factory(LocalContext.current.applicationContext),
     ),
@@ -161,6 +168,18 @@ fun UbicacionManualScreen(
     // recompone la ruta; D9: el PdrTracker la lee una sola vez al crearse (7.4).
     val longitudCalibradaM = remember { CalibracionPasoRepository(contexto).guardada() }
     val calibrarActual by rememberUpdatedState(onCalibrar)
+    val retomarActual by rememberUpdatedState(onRetomar)
+    // FE-2.3: ¿quedó una grabación sin finalizar (la app se cerró a mitad)? Se relee al volver a la ruta.
+    val pendiente by produceState<GrabacionPendiente?>(initialValue = null) {
+        value = try {
+            val repo = RecoleccionRepositoryLocal(contexto)
+            repo.buscarEnCurso()?.let { id -> repo.leerEnCurso(id).let { GrabacionPendiente(it.nombre, it.fotos.size) } }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null // un manifest ilegible no impide empezar otra
+        }
+    }
 
     LaunchedEffect(Unit) { viewModel.alAbrir(brujulaOk) }
 
@@ -204,10 +223,16 @@ fun UbicacionManualScreen(
             onCancelar = { volverActual() },
             onConfirmar = viewModel::alConfirmar,
             onCalibrar = { calibrarActual() },
+            onRetomar = { retomarActual() },
         )
     }
 
-    UbicacionManualContent(estado = estado, acciones = acciones, longitudCalibradaM = longitudCalibradaM)
+    UbicacionManualContent(
+        estado = estado,
+        acciones = acciones,
+        longitudCalibradaM = longitudCalibradaM,
+        grabacionPendiente = pendiente,
+    )
 }
 
 // ═════════════════════════════════════════════════════════════════════════════════════
@@ -220,6 +245,7 @@ fun UbicacionManualContent(
     acciones: UbicacionManualAcciones,
     modifier: Modifier = Modifier,
     longitudCalibradaM: Double? = null,
+    grabacionPendiente: GrabacionPendiente? = null,
 ) {
     val scroll = rememberScrollState()
     // Mientras el dedo está sobre el mapa, la columna no se desplaza (si no, arrastrar el
@@ -242,6 +268,7 @@ fun UbicacionManualContent(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Encabezado(acciones.onVolver, acciones.onAjustes)
+            grabacionPendiente?.let { FilaRetomar(it, acciones.onRetomar) }
             BannerAyuda()
             MapaConControles(estado, acciones, onGesto = { mapaEnGesto = it })
             Row(
@@ -899,6 +926,46 @@ private fun FilaCalibracion(longitudCalibradaM: Double?, onClick: () -> Unit) {
             Text(subtitulo, color = C.TextoSecundario, fontSize = 13.5.sp, lineHeight = 17.sp)
         }
         Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = C.Acento)
+    }
+}
+
+// ── Grabación sin finalizar (FE-2.3) ────────────────────────────────────────────────
+
+@Composable
+private fun FilaRetomar(pendiente: GrabacionPendiente, onClick: () -> Unit) {
+    val forma = RoundedCornerShape(18.dp)
+    val fotos = if (pendiente.fotos == 1) "1 foto guardada" else "${pendiente.fotos} fotos guardadas"
+    val subtitulo = "Quedó sin finalizar: $fotos. Retómala en pausa o empieza otra abajo."
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 72.dp)
+            .clip(forma)
+            .background(ColorPendiente.copy(alpha = 0.10f))
+            .border(1.5.dp, ColorPendiente, forma)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .semantics(mergeDescendants = true) {
+                contentDescription = "Retomar la grabación ${pendiente.nombre}. $subtitulo"
+            },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(48.dp).border(1.5.dp, ColorPendiente, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Outlined.Videocam, contentDescription = null, tint = ColorPendiente, modifier = Modifier.size(26.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                "Retomar «${pendiente.nombre}»",
+                color = ColorPendiente, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+            Text(subtitulo, color = C.TextoSecundario, fontSize = 13.5.sp, lineHeight = 17.sp)
+        }
+        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = ColorPendiente)
     }
 }
 

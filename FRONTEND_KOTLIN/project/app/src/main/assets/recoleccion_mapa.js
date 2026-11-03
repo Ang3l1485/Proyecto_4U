@@ -185,6 +185,15 @@
   window.zoomMas = function () { mapa.zoomIn(); };
   window.zoomMenos = function () { mapa.zoomOut(); };
 
+  // FE-2.1 (vista 7.5, recorrido terminado): encuadra la trayectoria y las fotos y deja de seguir la posición.
+  window.encuadrar = function () {
+    const puntos = trayectoria.getLatLngs().slice();
+    for (const f of fotos.values()) puntos.push(L.latLng(f.lat, f.lng));
+    if (!puntos.length) return;
+    setSiguiendo(false);
+    mapa.fitBounds(L.latLngBounds(puntos), { padding: [24, 24], maxZoom: ZOOM_SEGUIR, animate: false });
+  };
+
   // Si el admin arrastra el mapa con el dedo, deja de seguirlo hasta que pulse «Centrar».
   mapa.on('dragstart', () => setSiguiendo(false));
 
