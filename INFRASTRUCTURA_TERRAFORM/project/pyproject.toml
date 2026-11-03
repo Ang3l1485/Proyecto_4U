@@ -1,5 +1,6 @@
 # Solo para los validadores de los lotes INF-x.y (ARCHITECTURE §5.11): no es un paquete instalable.
 # Uso: uv run --group ops python src/ops/validate<fase><n>.py --entorno dev
+# Pruebas locales de los validadores (desde INF-3.1): uv run --group ops --group pruebas pytest tests/ops -q
 
 [project]
 name = "campus-locator-infraestructura"
@@ -13,6 +14,13 @@ ops = [
     "boto3>=1.35",
     "httpx>=0.27",
 ]
+pruebas = [
+    "pytest>=8",
+]
 
 [tool.uv]
 package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src/ops"]
