@@ -1,0 +1,188 @@
+# Servicio de embeddings (SERVICE_EMBEDDING).
+# PR: uv sync --locked, ruff check, ruff format --check y pytest, este con los pesos de la revisión fijada (en caché) y
+# DORADOS_OBLIGATORIOS=1, para que los vectores dorados se comprueben y no se omitan (ADR-EMB-12).
+# main (push o workflow_dispatch): las mismas pruebas; imagen linux/amd64 con etiqueta = SHA (solo si no existe en
+# ECR: las etiquetas son inmutables); nueva revisión de campus-locator-dev-embedding a partir de la última de la
+# familia, cambiando solo la imagen del contenedor app; update-service. Con réplicas, espera hasta 25 min a que el
+# despliegue quede COMPLETED con la revisión nueva y falla si el circuit breaker revierte; con 0 réplicas (apagado)
+# no espera.
+# Contrato: INFRASTRUCTURA_TERRAFORM/docs/ARCHITECTURE.md §3.9, §5.8 y §5.9; SERVICE_EMBEDDING/docs/ARCHITECTURE.md
+# §4.2, §5.4 y §5.5. El job de despliegue no declara environment: gha-deploy solo confía en ref:refs/heads/main.
+name: embedding
+
+on:
+  pull_request:
+    paths:
+      - "SERVICE_EMBEDDING/project/**"
+      - ".github/workflows/embedding.yml"
+  push:
+    branches: [main]
+    paths:
+      - "SERVICE_EMBEDDING/project/**"
+      - ".github/workflows/embedding.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: embedding-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  FAMILIA: campus-locator-dev-embedding
+  SERVICIO: embedding
+  CONTENEDOR: app
+
+jobs:
+  pruebas:
+    name: pruebas
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: SERVICE_EMBEDDING/project
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.11.32"
+          working-directory: SERVICE_EMBEDDING/project
+          cache-dependency-glob: uv.lock
+
+      - name: uv sync --locked
+        run: uv sync --locked
+
+      - name: ruff check
+        run: uv run --locked ruff check .
+
+      - name: ruff format --check
+        run: uv run --locked ruff format --check .
+
+      # Pesos de la revisión fijada (ARCHITECTURE §5.3) para tests/test_dorados.py. La clave cambia con config.py
+      # (donde está la revisión) y con el script que los baja.
+      - name: Pesos del modelo (caché)
+        id: pesos
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/modelo
+          key: modelo-${{ hashFiles('SERVICE_EMBEDDING/project/src/app/config.py', 'SERVICE_EMBEDDING/project/tools/descargar_modelo.py') }}
+
+      - name: Pesos del modelo (descarga)
+        if: steps.pesos.outputs.cache-hit != 'true'
+        env:
+          PYTHONPATH: src
+        run: uv run --locked python tools/descargar_modelo.py "$RUNNER_TEMP/modelo"
+
+      - name: pytest
+        env:
+          MODELO_DIR: ${{ runner.temp }}/modelo
+          DORADOS_OBLIGATORIOS: "1"
+        run: uv run --locked pytest
+
+  desplegar:
+    name: desplegar (main)
+    needs: pruebas
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      ECR_EMBEDDING: ${{ vars.ECR_EMBEDDING }}
+      ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+      ROL_DEPLOY: ${{ vars.AWS_ROL_DEPLOY_ARN }}
+      REGION: ${{ vars.AWS_REGION }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Comprobar las variables del repositorio
+        run: |
+          faltan=""
+          [ -n "$ECR_EMBEDDING" ] || faltan="$faltan ECR_EMBEDDING"
+          [ -n "$ECS_CLUSTER" ] || faltan="$faltan ECS_CLUSTER"
+          [ -n "$ROL_DEPLOY" ] || faltan="$faltan AWS_ROL_DEPLOY_ARN"
+          [ -n "$REGION" ] || faltan="$faltan AWS_REGION"
+          if [ -n "$faltan" ]; then
+            echo "::error::faltan variables del repositorio:$faltan (infra §5.9)"
+            exit 1
+          fi
+
+      - name: Credenciales de AWS (gha-deploy por OIDC)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROL_DEPLOY_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: embedding-${{ github.run_id }}
+          allowed-account-ids: "648617469176"
+
+      - name: Iniciar sesión en ECR
+        run: |
+          registro="${ECR_EMBEDDING%%/*}"
+          aws ecr get-login-password | docker login --username AWS --password-stdin "$registro"
+
+      - name: Imagen (solo si la etiqueta no existe)
+        run: |
+          imagen="$ECR_EMBEDDING:$GITHUB_SHA"
+          repositorio="${ECR_EMBEDDING#*/}"
+          existe=$(aws ecr batch-get-image --repository-name "$repositorio" --image-ids "imageTag=$GITHUB_SHA" \
+            --query 'length(images)' --output text)
+          if [ "$existe" != "0" ]; then
+            echo "La imagen $imagen ya existe (etiquetas inmutables): no se vuelve a construir"
+          else
+            docker build --platform linux/amd64 --build-arg "GIT_COMMIT=$GITHUB_SHA" -t "$imagen" SERVICE_EMBEDDING/project
+            docker push "$imagen"
+          fi
+          echo "IMAGEN=$imagen" >> "$GITHUB_ENV"
+
+      - name: Nueva revisión de la definición de tarea
+        run: |
+          aws ecs describe-task-definition --task-definition "$FAMILIA" --query taskDefinition --output json > actual.json
+          jq -e --arg c "$CONTENEDOR" '[.containerDefinitions[] | select(.name == $c)] | length == 1' actual.json \
+            > /dev/null || { echo "::error::la familia $FAMILIA no tiene un único contenedor $CONTENEDOR"; exit 1; }
+          jq --arg img "$IMAGEN" --arg c "$CONTENEDOR" '
+            .containerDefinitions |= map(if .name == $c then .image = $img else . end)
+            | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities,
+                  .registeredAt, .registeredBy, .deregisteredAt)' actual.json > nueva.json
+          revision=$(aws ecs register-task-definition --cli-input-json file://nueva.json \
+            --query taskDefinition.taskDefinitionArn --output text)
+          echo "Revisión nueva: $revision"
+          echo "REVISION=$revision" >> "$GITHUB_ENV"
+
+      - name: update-service y espera
+        run: |
+          deseadas=$(aws ecs update-service --cluster "$ECS_CLUSTER" --service "$SERVICIO" \
+            --task-definition "$REVISION" --query 'service.desiredCount' --output text)
+          if [ "$deseadas" = "0" ]; then
+            echo "$SERVICIO tiene 0 réplicas (apagado): tomará $REVISION al encenderse; no se espera"
+            exit 0
+          fi
+          limite=$(( $(date +%s) + 25 * 60 ))
+          while [ "$(date +%s)" -lt "$limite" ]; do
+            salida=$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$SERVICIO" \
+              --query "services[0].deployments[?status=='PRIMARY'] | [0].[taskDefinition, rolloutState]" --output text)
+            read -r primaria estado <<< "$salida"
+            if [ "$primaria" != "$REVISION" ]; then
+              echo "::error::el circuit breaker revirtió el despliegue a $primaria"
+              exit 1
+            fi
+            case "$estado" in
+              COMPLETED) echo "Despliegue COMPLETED con $REVISION"; exit 0 ;;
+              FAILED) echo "::error::el despliegue de $REVISION falló (rolloutState = FAILED)"; exit 1 ;;
+            esac
+            echo "rolloutState = $estado; esperando..."
+            sleep 15
+          done
+          echo "::error::el despliegue de $REVISION no quedó COMPLETED en 25 min"
+          exit 1
