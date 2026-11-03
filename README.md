@@ -90,8 +90,8 @@ validar» de §2 de cada `docs/PLAN.md`**: si cambian, esta tabla se actualiza e
 | Ya | — | EMB-1.1, EMB-2.1 (código y pruebas en `local`) | BE-1.1 a BE-1.3 (código y pruebas en `local`) | FE-2.3, FE-4.2 y FE-4.3 (no dependen de nadie) | Avance sin AWS |
 | 0 | INF-0.1 → INF-0.2 | | | | Estado remoto, CI y presupuesto |
 | 1 | INF-1.1 → INF-1.2 → INF-1.3 → INF-1.4 | EMB-1.1 (espera INF-1.3) | BE-1.1 (espera INF-1.3 e INF-1.4) → BE-1.2 (espera INF-1.2) → BE-1.3 | FE-1.1 (espera BE-1.1) → FE-1.2 (espera BE-1.3) | Login real por HTTPS |
-| 2 | INF-2.1 | EMB-2.1 | BE-2.1 → BE-2.2 (espera EMB-2.1 e INF-2.1) → BE-2.4 | FE-2.3 → FE-2.1 (espera BE-2.2 y FE-2.3) | Primer recorrido real indexado |
-| 3 | INF-3.1 | EMB-3.1; EMB-3.2 (espera BE-2.4 y el dataset real de FE-2.1) | BE-3.1 → BE-2.3 (espera BE-2.2 y BE-3.1); BE-4.1 (espera BE-2.4); BE-3.2 (espera BE-2.4, BE-3.1, EMB-3.1 y EMB-3.2) | FE-3.1, FE-3.3, FE-3.4 (esperan BE-3.1); FE-2.2 (espera BE-2.3); FE-3.2 (espera BE-3.2); FE-3.5 (espera FE-3.2) | Ubicarse en el campus |
+| 2 | INF-2.1 (encendido de `embedding`) | EMB-2.1 | BE-2.1 → BE-2.2 (espera EMB-2.1 e INF-2.1) → BE-2.4 | FE-2.3 → FE-2.1 (espera BE-2.2 y FE-2.3) | Primer recorrido real indexado |
+| 3 | INF-3.1 | EMB-3.1; EMB-3.2 (espera BE-2.4 y el dataset real de FE-2.1) | BE-3.1 (solo lugares) → BE-2.3 (espera BE-2.2 y BE-3.1); BE-4.1 (espera BE-2.4); BE-3.2 (espera BE-2.4, BE-3.1, EMB-3.1 y EMB-3.2); BE-3.3 alertas, fuera del núcleo (espera BE-1.3; su C5, BE-2.3) | FE-3.1, FE-3.4 (esperan BE-3.1); FE-3.3 (espera BE-3.3); FE-2.2 (espera BE-2.3); FE-3.2 (espera BE-3.2); FE-3.5 (espera FE-3.2); FE-3.6 alertas públicas, fuera del núcleo (espera FE-3.2 y BE-3.3) | Ubicarse en el campus |
 | 4 | | | (BE-4.1 ya puede estar hecho desde la ola 3) | FE-4.1 (espera BE-4.1) | Administración completa |
 | 5–6 | INF-6.1 | EMB-5.1 | BE-5.1 a BE-6.1 | FE-5.1 a FE-6.1 | Diferido |
 
@@ -137,7 +137,7 @@ código 2 y el lote queda `Bloqueado` (contrato en `INFRASTRUCTURA_TERRAFORM/doc
 | Posición | Navegación inercial (PDR) con acelerómetro y rotation vector; corrección visual con fotos |
 | Mapa | OpenStreetMap + Leaflet dentro de un `WebView`, con capa propia de alertas |
 | Backend | Python 3.12, FastAPI, SQLAlchemy 2 (asyncpg), Alembic, uv |
-| Embeddings | DINOv2 ViT-B/14 (768 dimensiones) con PyTorch en CPU |
+| Embeddings | DINOv2 ViT-S/14 (384 dimensiones) con PyTorch en CPU (2 vCPU en `dev`) |
 | Datos | PostgreSQL 17 con `pgvector` (RDS); fotos en S3; colas SQS |
 | Infraestructura | AWS (`us-east-1`): API Gateway HTTP API, ECS Fargate, RDS, S3, SQS, Secrets Manager, CloudWatch. Terraform ≥ 1.10, Docker, GitHub Actions con OIDC |
 
@@ -162,11 +162,15 @@ Cada carpeta se trabaja de forma independiente:
 1. **App Android:** abre `FRONTEND_KOTLIN/project/` en Android Studio, configura la URL del backend en `ApiConfig.kt`,
    sincroniza Gradle y ejecuta la configuración `app` en un dispositivo físico. Detalles en
    `FRONTEND_KOTLIN/README.md`.
-2. **Backend y embeddings:** aún no hay código; el código irá en `project/` y el orden está en el `docs/PLAN.md` de
-   cada carpeta (primeros lotes: BE-1.1 y EMB-1.1, que se pueden adelantar en `local`).
-3. **Infraestructura:** aún no hay código; se empieza por el lote INF-0.1 (bootstrap de la cuenta) de
-   `INFRASTRUCTURA_TERRAFORM/docs/PLAN.md`.
-4. **Orden entre carpetas:** sección «Orden global de construcción».
+2. **Backend y embeddings:** el código está en `project/` desde BE-1.1 y EMB-1.1. Cómo se corre en `local` está en el
+   §5 de su `docs/ARCHITECTURE.md` (backend §5.11 con `docker compose`; embeddings §5.8, en CPU), y el orden de los
+   lotes, en su `docs/PLAN.md`.
+3. **Infraestructura:** el código está en `INFRASTRUCTURA_TERRAFORM/project/`; el estado de cada lote, en
+   `INFRASTRUCTURA_TERRAFORM/docs/PLAN.md` §3.
+4. **Probar en `dev`:** el servicio de embeddings está apagado por defecto. Se enciende con
+   `src/ops/embedding.py encender` de infraestructura (desde INF-2.1; tarda 2–3 min) y se apaga solo tras 45 min sin
+   uso y a las 22:00 (hora de Bogotá). Mientras está apagado, ubicarse responde «servicio no disponible».
+5. **Orden entre carpetas:** sección «Orden global de construcción».
 
 ---
 

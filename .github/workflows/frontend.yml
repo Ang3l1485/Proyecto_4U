@@ -1,0 +1,124 @@
+# CI de la app Android (FRONTEND_KOTLIN). Lote FE-1.1; lo propio de la app: FRONTEND_KOTLIN/docs/ARCHITECTURE.md
+# §4 («CI de la app») y §5.11. No despliega nada ni usa AWS: no pide permisos más allá de leer el repositorio.
+# - Pull request y push a main con cambios en FRONTEND_KOTLIN/project/** o en este archivo.
+# - Job «compilar y pruebas unitarias»: ./gradlew testDebugUnitTest assembleDebug (JDK 21 Temurin, Android SDK del
+#   runner). Las pruebas instrumentadas (connectedDebugAndroidTest) necesitan un dispositivo físico: no corren aquí.
+# - Job «validadores»: ruff y pytest de project/src/ops y project/tests (sin red, sin Gradle, sin dispositivo).
+# Renombrar un job cambia el nombre del check que se pide en FE-1.1 C3 (validation-1-1 §3): actualizar ese documento.
+name: frontend
+
+on:
+  pull_request:
+    paths:
+      - "FRONTEND_KOTLIN/project/**"
+      - ".github/workflows/frontend.yml"
+  push:
+    branches: [main]
+    paths:
+      - "FRONTEND_KOTLIN/project/**"
+      - ".github/workflows/frontend.yml"
+
+permissions: {}
+
+concurrency:
+  group: frontend-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # La misma versión de uv que backend.yml.
+  UV_VERSION: "0.11.32"
+  # La misma JVM con que se compila en local (JBR 21 de Android Studio; ARCHITECTURE §4).
+  JAVA_VERSION: "21"
+
+defaults:
+  run:
+    shell: bash
+    working-directory: FRONTEND_KOTLIN/project
+
+jobs:
+  app:
+    name: compilar y pruebas unitarias
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: gradle
+          cache-dependency-path: |
+            FRONTEND_KOTLIN/project/gradle/wrapper/gradle-wrapper.properties
+            FRONTEND_KOTLIN/project/gradle/libs.versions.toml
+            FRONTEND_KOTLIN/project/**/*.gradle.kts
+
+      # local.properties no está en Git (lleva la ruta del SDK de cada máquina): Gradle usa ANDROID_HOME del runner.
+      - name: Android SDK del runner
+        run: |
+          if [ -z "${ANDROID_HOME:-}" ] || [ ! -d "$ANDROID_HOME" ]; then
+            echo "::error::El runner no trae Android SDK (ANDROID_HOME vacío)."
+            exit 1
+          fi
+          echo "ANDROID_HOME=$ANDROID_HOME"
+
+      # gradlew está en Git sin el bit de ejecución (modo 100644).
+      - name: ./gradlew testDebugUnitTest assembleDebug
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --console=plain --stacktrace testDebugUnitTest assembleDebug
+
+      - name: Resumen de las pruebas unitarias
+        if: always()
+        run: |
+          shopt -s nullglob
+          archivos=(app/build/test-results/testDebugUnitTest/TEST-*.xml)
+          if [ ${#archivos[@]} -eq 0 ]; then
+            echo "Sin resultados de pruebas (¿falló la compilación?)."
+            exit 0
+          fi
+          {
+            echo "| Clase | Casos | Fallos | Errores |"
+            echo "|---|---|---|---|"
+            for f in "${archivos[@]}"; do
+              linea=$(grep -o '<testsuite [^>]*>' "$f" | head -1)
+              nombre=$(sed -n 's/.* name="\([^"]*\)".*/\1/p' <<< "$linea")
+              casos=$(sed -n 's/.* tests="\([0-9]*\)".*/\1/p' <<< "$linea")
+              fallos=$(sed -n 's/.* failures="\([0-9]*\)".*/\1/p' <<< "$linea")
+              errores=$(sed -n 's/.* errors="\([0-9]*\)".*/\1/p' <<< "$linea")
+              echo "| ${nombre##*.} | $casos | $fallos | $errores |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  validadores:
+    name: validadores
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: FRONTEND_KOTLIN/project/uv.lock
+
+      - name: uv sync --frozen
+        run: uv sync --frozen --group ops
+
+      - name: ruff check
+        run: uv run --frozen ruff check .
+
+      - name: ruff format --check
+        run: uv run --frozen ruff format --check .
+
+      - name: pytest
+        run: uv run --frozen pytest
