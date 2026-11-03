@@ -1,0 +1,292 @@
+# CI/CD del backend (BACKEND_FASTAPI). Contrato: INFRASTRUCTURA_TERRAFORM/docs/ARCHITECTURE.md §3.9, §5.8 y §5.9;
+# lo propio del backend: BACKEND_FASTAPI/docs/ARCHITECTURE.md §4.2, §4.3 y §5.9 (lotes BE-1.1 y BE-1.2).
+# - Pull request: lint y pruebas, con un PostgreSQL 17 + pgvector efímero para las pruebas con base.
+# - Push a main: lint y pruebas → imagen linux/amd64 con etiqueta = SHA → ECR → nuevas revisiones de
+#   campus-locator-dev-migrate, -api y -worker → tarea suelta migrate (python -m app.cli migrar; si no sale con 0, el
+#   workflow falla sin tocar los servicios) → update-service de api y worker (api pasa a 1 réplica en el primer
+#   despliegue) → wait services-stable sobre api y comprobación de que no hubo rollback.
+# Para volver a desplegar el mismo commit (p. ej. tras un cambio de Terraform en una tarea, ADR-INF-09): «Re-run all
+# jobs» en la última ejecución de main. Así la imagen sigue siendo la del último commit que tocó project/ (BE-1.1 C3a).
+name: backend
+
+on:
+  pull_request:
+    paths:
+      - "BACKEND_FASTAPI/project/**"
+      - ".github/workflows/backend.yml"
+  push:
+    branches: [main]
+    paths:
+      - "BACKEND_FASTAPI/project/**"
+      - ".github/workflows/backend.yml"
+
+permissions: {}
+
+# Un PR solo necesita su última ejecución; los despliegues de main van en fila y no se interrumpen.
+concurrency:
+  group: backend-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CUENTA_AWS: "648617469176"
+  # La misma versión de uv que copia project/Dockerfile.
+  UV_VERSION: "0.11.32"
+  # Nombres de infra §5.1.
+  SERVICIO_API: api
+  SERVICIO_WORKER: worker
+  FAMILIA_API: campus-locator-dev-api
+  FAMILIA_WORKER: campus-locator-dev-worker
+  FAMILIA_MIGRATE: campus-locator-dev-migrate
+  CONTENEDOR: app
+  # Log de la tarea migrate: stream migrate/app/<id de la tarea> (infra §5.1). gha-deploy solo puede leer este grupo.
+  GRUPO_LOGS_MIGRATE: /campus-locator/dev/migrate
+
+defaults:
+  run:
+    shell: bash
+    working-directory: BACKEND_FASTAPI/project
+
+jobs:
+  pruebas:
+    name: lint y pruebas
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    # Base efímera para las pruebas marcadas `base` (tests/conftest.py): la misma imagen que docker-compose.yml.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_DB: campus_locator
+          POSTGRES_USER: campus_app
+          POSTGRES_PASSWORD: solo-pruebas-ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U campus_app -d campus_locator"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      PRUEBAS_DB_URL: postgresql://campus_app:solo-pruebas-ci@localhost:5432/campus_locator
+      # Sin base, las pruebas con base fallan en lugar de omitirse.
+      PRUEBAS_DB_OBLIGATORIA: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: BACKEND_FASTAPI/project/uv.lock
+
+      # El grupo ops (boto3) lo necesitan las pruebas de los validadores (tests/ops).
+      - name: uv sync --frozen
+        run: uv sync --frozen --group ops
+
+      - name: ruff check
+        run: uv run --frozen ruff check .
+
+      - name: ruff format --check
+        run: uv run --frozen ruff format --check .
+
+      - name: pytest
+        run: uv run --frozen pytest
+
+  desplegar:
+    name: despliegue (main)
+    needs: pruebas
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # Sin `environment:`: el rol gha-deploy solo confía en sub = repo:<sub_repo>:ref:refs/heads/main (infra §5.8); con
+    # un entorno el sub cambiaría y AWS rechazaría el token.
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      ECR_BACKEND: ${{ vars.ECR_BACKEND }}
+      ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+      ROL_DEPLOY: ${{ vars.AWS_ROL_DEPLOY_ARN }}
+      SUBREDES_TAREAS: ${{ vars.SUBREDES_TAREAS }}
+      SG_MIGRATE: ${{ vars.SG_MIGRATE }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Comprobar las variables del repositorio (infra §5.9)
+        run: |
+          faltan=""
+          for v in AWS_REGION ECR_BACKEND ECS_CLUSTER ROL_DEPLOY SUBREDES_TAREAS SG_MIGRATE; do
+            [ -n "${!v}" ] || faltan="$faltan $v"
+          done
+          if [ -n "$faltan" ]; then
+            echo "::error::Faltan variables del repositorio:$faltan (ROL_DEPLOY = AWS_ROL_DEPLOY_ARN; infra §5.9)"
+            exit 1
+          fi
+          echo "IMAGEN=${ECR_BACKEND}:${GITHUB_SHA}" >> "$GITHUB_ENV"
+
+      - name: Credenciales de AWS (gha-deploy)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROL_DEPLOY_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: backend-deploy-${{ github.run_id }}
+          allowed-account-ids: ${{ env.CUENTA_AWS }}
+
+      - name: Construir y publicar la imagen
+        run: |
+          registro="${ECR_BACKEND%%/*}"
+          repositorio="${ECR_BACKEND#*/}"
+          aws ecr get-login-password | docker login --username AWS --password-stdin "$registro"
+          existentes=$(aws ecr batch-get-image --repository-name "$repositorio" \
+            --image-ids imageTag="$GITHUB_SHA" --query 'length(images)' --output text)
+          if [ "$existentes" != "0" ]; then
+            echo "La imagen $IMAGEN ya está en ECR (etiquetas inmutables): no se vuelve a publicar."
+            exit 0
+          fi
+          docker build --platform linux/amd64 --build-arg GIT_COMMIT="$GITHUB_SHA" -t "$IMAGEN" .
+          docker push "$IMAGEN"
+
+      - name: Registrar las nuevas revisiones de migrate, api y worker
+        id: revisiones
+        run: |
+          # Parte de la última revisión de cada familia (la de Terraform o la del despliegue anterior) y solo cambia
+          # la imagen del contenedor app; el comando de worker y migrate y el resto de la tarea se conservan
+          # (backend §4.2). Si migrate falla, las revisiones de api y worker quedan sin usar: el siguiente despliegue
+          # parte de ellas y solo vuelve a cambiar la imagen.
+          shopt -s inherit_errexit
+          registrar() {
+            local familia="$1" actual="$RUNNER_TEMP/$1-actual.json" nueva="$RUNNER_TEMP/$1-nueva.json"
+            aws ecs describe-task-definition --task-definition "$familia" \
+              --query taskDefinition --output json > "$actual"
+            if ! jq -e --arg c "$CONTENEDOR" 'any(.containerDefinitions[]; .name == $c)' "$actual" > /dev/null; then
+              echo "::error::$familia no tiene un contenedor $CONTENEDOR" >&2
+              return 1
+            fi
+            jq --arg img "$IMAGEN" --arg c "$CONTENEDOR" '
+                .containerDefinitions |= map(if .name == $c then .image = $img else . end)
+                | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities,
+                      .registeredAt, .registeredBy, .deregisteredAt, .deleteRequestedAt)' "$actual" > "$nueva"
+            aws ecs register-task-definition --cli-input-json "file://$nueva" \
+              --query taskDefinition.taskDefinitionArn --output text
+          }
+          migrate=$(registrar "$FAMILIA_MIGRATE")
+          api=$(registrar "$FAMILIA_API")
+          worker=$(registrar "$FAMILIA_WORKER")
+          echo "Revisiones nuevas: ${migrate##*/}, ${api##*/} y ${worker##*/}"
+          {
+            echo "migrate=$migrate"
+            echo "api=$api"
+            echo "worker=$worker"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Migrar la base (tarea migrate)
+        env:
+          ARN_MIGRATE: ${{ steps.revisiones.outputs.migrate }}
+        run: |
+          # Paso 2 de infra §5.9: tarea suelta con python -m app.cli migrar (backend §4.3, §5.9). Solo usa permisos de
+          # gha-deploy (infra §5.8): ecs:RunTask (sin --tags, que pediría ecs:TagResource), ecs:DescribeTasks,
+          # iam:PassRole y logs:GetLogEvents sobre /campus-locator/dev/migrate.
+          shopt -s inherit_errexit
+          red=$(jq -nc --arg s "$SUBREDES_TAREAS" --arg g "$SG_MIGRATE" \
+            '{awsvpcConfiguration: {subnets: ($s | split(",")), securityGroups: [$g], assignPublicIp: "ENABLED"}}')
+          lanzada=$(aws ecs run-task --cluster "$ECS_CLUSTER" --launch-type FARGATE --count 1 \
+            --task-definition "$ARN_MIGRATE" --network-configuration "$red" \
+            --started-by "backend-${GITHUB_RUN_ID}" --output json)
+          tarea=$(jq -r '.tasks[0].taskArn // empty' <<< "$lanzada")
+          if [ -z "$tarea" ]; then
+            echo "::error::run-task no lanzó migrate: $(jq -c '.failures' <<< "$lanzada")"
+            exit 1
+          fi
+          id="${tarea##*/}"
+          echo "Tarea migrate ${id} (${ARN_MIGRATE##*/}) lanzada; esperando a que termine."
+          espera=0
+          aws ecs wait tasks-stopped --cluster "$ECS_CLUSTER" --tasks "$tarea" || espera=$?
+          detalle=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$tarea" --output json)
+          salida=$(jq -r --arg c "$CONTENEDOR" \
+            '.tasks[0].containers[] | select(.name == $c) | .exitCode // "ninguno"' <<< "$detalle")
+          motivo=$(jq -r --arg c "$CONTENEDOR" \
+            '[(.tasks[0].containers[] | select(.name == $c) | .reason // empty), .tasks[0].stoppedReason // empty]
+             | map(select(. != "")) | join(" · ")' <<< "$detalle")
+
+          # El log tarda unos segundos en llegar a CloudWatch tras detenerse la tarea.
+          stream="migrate/${CONTENEDOR}/${id}"
+          lineas=""
+          for intento in $(seq 1 12); do
+            lineas=$(aws logs get-log-events --log-group-name "$GRUPO_LOGS_MIGRATE" --log-stream-name "$stream" \
+              --start-from-head --output json 2> /dev/null | jq -r '.events[].message') || lineas=""
+            if [ -n "$lineas" ] || [ "$intento" = "12" ]; then
+              break
+            fi
+            sleep 5
+          done
+          echo "::group::Log de migrate (${GRUPO_LOGS_MIGRATE} ${stream})"
+          printf '%s\n' "${lineas:-(sin líneas en el log)}"
+          echo "::endgroup::"
+
+          if [ "$espera" != "0" ]; then
+            echo "::error::La tarea migrate ${id} no terminó a tiempo (ecs wait tasks-stopped)."
+            exit 1
+          fi
+          if [ "$salida" != "0" ]; then
+            echo "::error::migrate terminó con código ${salida} (${motivo:-sin motivo}). Revisa su log arriba; api y worker no se actualizan."
+            exit 1
+          fi
+          echo "migrate terminó con 0."
+
+      - name: Actualizar los servicios
+        env:
+          ARN_API: ${{ steps.revisiones.outputs.api }}
+          ARN_WORKER: ${{ steps.revisiones.outputs.worker }}
+        run: |
+          # Primer despliegue: Terraform crea api con 0 réplicas y CI la deja en 1 (infra §5.9). worker escala solo.
+          deseadas=$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$SERVICIO_API" \
+            --query 'services[0].desiredCount' --output text)
+          replicas=()
+          if [ "$deseadas" = "0" ]; then
+            echo "Primer despliegue: api pasa de 0 a 1 réplica."
+            replicas=(--desired-count 1)
+          fi
+          aws ecs update-service --cluster "$ECS_CLUSTER" --service "$SERVICIO_API" \
+            --task-definition "$ARN_API" "${replicas[@]}" --query service.serviceName --output text
+          aws ecs update-service --cluster "$ECS_CLUSTER" --service "$SERVICIO_WORKER" \
+            --task-definition "$ARN_WORKER" --query service.serviceName --output text
+
+      - name: Esperar a que api quede estable
+        env:
+          ARN_API: ${{ steps.revisiones.outputs.api }}
+        run: |
+          if ! aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$SERVICIO_API"; then
+            echo "::error::api no quedó estable en 10 min. Revisa los eventos del servicio y /campus-locator/dev/api."
+            exit 1
+          fi
+          # Tras services-stable, la revisión PRIMARY debe ser la nueva y estar COMPLETED: si el circuit breaker hizo
+          # rollback, el servicio también queda «estable», pero con la revisión anterior (backend §4.2).
+          for _ in $(seq 1 12); do
+            # shellcheck disable=SC2016 # las comillas invertidas son de JMESPath, no del shell
+            primario=$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$SERVICIO_API" --output text \
+              --query 'services[0].deployments[?status==`PRIMARY`] | [0].[taskDefinition, rolloutState, runningCount, desiredCount]')
+            read -r revision estado corriendo deseadas <<< "$primario"
+            echo "PRIMARY=${revision##*/} rollout=$estado tareas=$corriendo/$deseadas"
+            if [ "$revision" != "$ARN_API" ]; then
+              echo "::error::El despliegue de ${ARN_API##*/} se revirtió (circuit breaker). Revisa /campus-locator/dev/api."
+              exit 1
+            fi
+            if [ "$estado" = "COMPLETED" ] && [ "$corriendo" = "$deseadas" ]; then
+              echo "api estable con ${ARN_API##*/}."
+              exit 0
+            fi
+            if [ "$estado" = "FAILED" ]; then
+              echo "::error::El despliegue de ${ARN_API##*/} falló."
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "::error::api quedó estable, pero su despliegue no llegó a COMPLETED en 2 min."
+          exit 1
