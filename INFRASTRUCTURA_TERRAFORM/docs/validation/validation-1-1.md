@@ -106,6 +106,11 @@ campus-locator-dev-vpc`).
    gh run view "$RUN" --log | grep 'Apply complete'
    ```
    Esperado: `gh run watch` termina con 0 y el log dice `Apply complete! Resources: 29 added, 0 changed, 0 destroyed.`
+   Si el segundo `until` no termina en un minuto, otra ejecución de `main` espera aprobación y retiene la fila (§3.9):
+   `gh run list --workflow infra.yml --branch main --limit 5` la muestra en curso (`*`). Si es de un commit que ya no
+   está en `main` o no se quiere aplicar, se cancela con `gh run cancel <id>` (solo si
+   `gh api "repos/{owner}/{repo}/actions/runs/<id>/pending_deployments"` la lista esperando `dev`: así no ha tocado AWS)
+   y el bucle sigue solo.
 5. Copiar los outputs nuevos a las variables del repositorio (§5.9):
    ```bash
    cd INFRASTRUCTURA_TERRAFORM/project

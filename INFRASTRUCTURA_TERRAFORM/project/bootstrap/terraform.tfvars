@@ -7,10 +7,9 @@ entorno         = "dev"
 presupuesto_usd = 100
 
 # Decididos el 2026-10-23 (PLAN INF-0.1, «Requiere decidir antes»). El repositorio es público.
-github_repo    = "AlejandroSPosada/4U_project"
+github_repo    = "Ang3l1485/Proyecto_4U"
 correo_alertas = "franklinalejo1042005@gmail.com"
 
-# El repositorio se creó el 2026-09-09, después del 2026-07-15: GitHub emite el sub inmutable
-# repo:AlejandroSPosada@142058005/4U_project@1362957467:… (README.md, «Formato del sub»).
-# Origen: gh api repos/AlejandroSPosada/4U_project --jq "{propietario: .owner.id, repositorio: .id}"
-github_ids = { propietario = 142058005, repositorio = 1362957467 }
+# El repositorio usa el formato inmutable del claim sub de GitHub OIDC.
+# IDs del propietario y repositorio de Proyecto_4U.
+github_ids = { propietario = 141779168, repositorio = 1312078315 }
