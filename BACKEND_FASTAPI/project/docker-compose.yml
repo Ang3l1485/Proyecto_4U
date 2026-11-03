@@ -1,0 +1,88 @@
+# Entorno `local` del backend (ARCHITECTURE §5.11).
+#
+#   docker compose up --build                     # db + api + worker
+#   docker compose run --rm api python -m app.cli migrar             # esquema de §5.7 y admin inicial (BE-1.2)
+#   docker compose run --rm api python -m app.cli verificar-esquema
+#   EMBEDDING_IMAGEN=<imagen> docker compose --profile embedding up --build   # además, el servicio de embeddings
+#
+# S3 y SQS no se emulan: lo que dependa de ellos solo se valida en `dev`.
+# Las contraseñas de abajo son solo para este entorno local; en AWS llegan de Secrets Manager (infra §5.4).
+
+name: campus-locator-backend
+
+x-construccion: &construccion
+  context: .
+  args:
+    GIT_COMMIT: ${GIT_COMMIT:-local}
+
+x-entorno: &entorno
+  APP_ENV: local
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  AWS_REGION: us-east-1
+  DB_HOST: db
+  DB_PORT: "5432"
+  DB_NAME: campus_locator
+  DB_USER: campus_app
+  DB_PASSWORD: local-solo-desarrollo
+  DB_SSLMODE: disable
+  EMBEDDING_URL: http://embedding:8080
+  JWT_SECRET: local-solo-desarrollo-no-usar-en-aws
+  # Admin inicial que crea `migrar` si no hay ningún admin (en AWS, secreto admin-inicial, infra §5.4).
+  ADMIN_INICIAL_CORREO: admin@campus.edu.co
+  ADMIN_INICIAL_PASSWORD: local-solo-desarrollo-admin
+
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: campus_locator
+      POSTGRES_USER: campus_app
+      POSTGRES_PASSWORD: local-solo-desarrollo
+    ports:
+      - "${DB_PUERTO_LOCAL:-5432}:5432"
+    volumes:
+      - db-datos:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U campus_app -d campus_locator"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: *construccion
+    image: campus-locator/backend:local
+    environment: *entorno
+    ports:
+      - "${API_PUERTO_LOCAL:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    # Mismo health check que la definición de tarea en AWS (infra §5.7).
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:8000/v1/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  worker:
+    build: *construccion
+    image: campus-locator/backend:local
+    command: ["python", "-m", "app.worker"]
+    environment: *entorno
+    depends_on:
+      db:
+        condition: service_healthy
+
+  embedding:
+    profiles: ["embedding"]
+    image: ${EMBEDDING_IMAGEN:-campus-locator/embedding:local}
+    environment:
+      APP_ENV: local
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      TORCH_NUM_THREADS: ${TORCH_NUM_THREADS:-2}
+    ports:
+      - "${EMBEDDING_PUERTO_LOCAL:-8080}:8080"
+
+volumes:
+  db-datos:
