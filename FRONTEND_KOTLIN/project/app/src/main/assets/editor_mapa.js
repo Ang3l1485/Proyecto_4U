@@ -12,7 +12,7 @@ const COLOR = { alta: '#ef4444', normal: '#f59e0b' };
 
 const S = {
   alertas: new Map(), lugares: [], sel: null, borrador: null,
-  modo: null,                // null | 'colocar' | 'mover'
+  modo: null,                // null | 'colocar' | 'mover' | 'ajustar' (FE-3.3: «Ajustar en el mapa» del formulario)
   moverOrig: null, pend: 0, filtros: { tipo: '', prio: '', estado: '' },
 };
 
@@ -20,7 +20,7 @@ const S = {
 const map = MapaBase.crearMapa();
 const capas = { alertas: L.layerGroup().addTo(map), lugares: L.layerGroup().addTo(map), cobertura: L.layerGroup(), rutas: L.layerGroup() };
 const circulo = L.circle([0, 0], { radius: 15, color: '#ef4444', weight: 2, dashArray: '6 6', fillOpacity: .18 });
-let marcaBorrador = null, marcaPos = null;
+let marcaBorrador = null, marcaPos = null, marcaAjuste = null;
 const marcas = new Map();
 
 // ── Utilidades ─────────────────────────────────
@@ -64,7 +64,7 @@ function seleccionar(id) { S.sel = id; renderCard(); pintar(); }
 function deseleccionar() { S.sel = null; renderCard(); pintar(); }
 function renderCard() {
   const c = $('card'), a = S.alertas.get(S.sel);
-  c.classList.toggle('hidden', !a || S.modo === 'mover');
+  c.classList.toggle('hidden', !a || S.modo === 'mover' || S.modo === 'ajustar');
   if (!a) { medir(); return; }
   const col = COLOR[a.prioridad] || COLOR.normal;
   c.innerHTML = `<button class="x" aria-label="Cerrar">${ic('x')}</button>
@@ -116,6 +116,7 @@ function entrarColocar() { S.modo = 'colocar'; deseleccionar(); const b = $('btn
 function salirModo() { S.modo = null; const b = $('btn-new'); b.innerHTML = ic('plus') + 'Nueva alerta'; b.classList.remove('cancel'); }
 map.on('click', (e) => {
   if (S.modo === 'colocar') { salirModo(); abrirForm(null, e.latlng.lat, e.latlng.lng); setBorrador({ lat: e.latlng.lat, lng: e.latlng.lng, radio: 15, prioridad: 'normal', tipo: 'otro' }); }
+  else if (S.modo === 'ajustar') { if (marcaAjuste) { marcaAjuste.setLatLng(e.latlng); circulo.setLatLng(e.latlng); } }   // tocar también lo mueve
   else if (!S.modo) deseleccionar();                                  // tocar vacío deselecciona
 });
 $('btn-new').onclick = () => (S.modo === 'colocar' ? salirModo() : S.modo ? null : entrarColocar());
@@ -151,8 +152,29 @@ function terminarMover(ok) {
   }
   S.modo = null; $('move-bar').classList.add('hidden'); renderCard(); pintar();
 }
-$('move-ok').onclick = () => terminarMover(true);
-$('move-cancel').onclick = () => terminarMover(false);
+// ── Ajustar la posición del borrador (FE-3.3, «Ajustar en el mapa» del formulario 7.9) ──
+// Kotlin oculta la hoja y llama a ajustarBorrador(); al terminar (Listo, Cancelar o Atrás) se llama a
+// ajusteTerminado(lat, lng) con la posición nueva o la original, y Kotlin vuelve a abrir la hoja.
+function iniciarAjuste() {
+  const d = S.borrador; if (!d || S.modo === 'ajustar') return;
+  if (S.modo === 'mover') terminarMover(false); else if (S.modo === 'colocar') salirModo();
+  S.modo = 'ajustar'; S.moverOrig = { lat: d.lat, lng: d.lng };
+  const m0 = marcas.get(d.id); if (m0) m0.setOpacity(0);
+  if (marcaBorrador) marcaBorrador.setOpacity(0);
+  marcaAjuste = L.marker([d.lat, d.lng], { icon: icono({ tipo: d.tipo, prioridad: d.prioridad, activa: true }, true), draggable: true }).addTo(map);
+  marcaAjuste.on('drag', (e) => circulo.setLatLng(e.target.getLatLng()));
+  map.panTo([d.lat, d.lng]);
+  $('move-bar').classList.remove('hidden'); renderCard(); toast('Arrastra el marcador o toca el mapa y pulsa Listo');
+}
+function terminarAjuste(ok) {
+  const p = ok && marcaAjuste ? marcaAjuste.getLatLng() : S.moverOrig;
+  if (marcaAjuste) { marcaAjuste.remove(); marcaAjuste = null; }
+  if (marcaBorrador) marcaBorrador.setOpacity(1);
+  S.modo = null; $('move-bar').classList.add('hidden'); pintar(); renderCard();
+  if (!call('ajusteTerminado', p.lat, p.lng) && S.borrador) setBorrador({ ...S.borrador, lat: p.lat, lng: p.lng });
+}
+$('move-ok').onclick = () => (S.modo === 'ajustar' ? terminarAjuste(true) : terminarMover(true));
+$('move-cancel').onclick = () => (S.modo === 'ajustar' ? terminarAjuste(false) : terminarMover(false));
 
 // ── Filtros, capas y botones ───────────────────
 // El select real es invisible y cubre la caja; el valor que se ve se copia en #v-<filtro>.
@@ -185,8 +207,16 @@ window.setMiPosicion = (lat, lng) => {
   marcaPos.setLatLng([lat, lng]); map.setView([lat, lng], Math.max(map.getZoom(), 18));
 };
 window.setPendientes = (n) => { S.pend = n; actualizarPend(); };
+// FE-3.3: «Ajustar en el mapa» del formulario; pedidos de la lista 7.10 («Ver en el mapa», «Nueva alerta»).
+window.ajustarBorrador = () => iniciarAjuste();
+window.verAlerta = (id) => {
+  const a = S.alertas.get(id); if (!a || S.modo) return;
+  map.setView([a.lat, a.lng], Math.max(map.getZoom(), 18)); seleccionar(id);
+};
+window.nuevaAlerta = () => { if (!S.modo) entrarColocar(); };
 // Botón Atrás: sale primero de los modos temporales; devuelve true si lo consumió.
 window.onAtras = () => {
+  if (S.modo === 'ajustar') { terminarAjuste(false); return true; }
   if (S.modo === 'mover') { terminarMover(false); return true; }
   if (S.modo === 'colocar') { salirModo(); return true; }
   if (S.borrador) { cancelarBorrador(); call('cancelarFormulario'); return true; }
