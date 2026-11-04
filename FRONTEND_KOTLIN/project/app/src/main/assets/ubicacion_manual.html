@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Ubicación de partida</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root {
+    --fondo: #0A0E1A;
+    --superficie: #050B24;
+    --borde: #3A46A8;
+    --primario: #5B3CF5;
+    --acento: #8B6BFF;
+    --texto: #FFFFFF;
+  }
+  html, body { height: 100%; margin: 0; background: var(--fondo); }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  #map { position: absolute; inset: 0; background: var(--fondo); outline: none; }
+
+  #falla {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    padding: 24px; text-align: center; color: var(--texto); font-size: 15px; line-height: 1.4;
+  }
+  #falla[hidden] { display: none; }
+
+  /* Atribución obligatoria de OpenStreetMap, compacta y abajo a la izquierda. */
+  .leaflet-control-attribution {
+    background: rgba(5, 11, 36, .78); color: #B9B2FF; font-size: 10px; padding: 1px 6px;
+  }
+  .leaflet-control-attribution a { color: #B9B2FF; }
+
+  /* Etiquetas de lugares conocidos: píldoras oscuras con ícono, como en el diseño. */
+  .lugar {
+    display: flex; align-items: center; gap: 8px; width: max-content; max-width: 150px;
+    padding: 6px 12px 6px 8px; border-radius: 14px; box-sizing: border-box;
+    background: rgba(5, 11, 36, .9); border: 1px solid var(--borde);
+    color: var(--texto); font-size: 12.5px; line-height: 1.15; font-weight: 500;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .35); pointer-events: none;
+    transform: translate(-50%, -50%); /* el ancla del ícono es la esquina: así queda centrado en su coordenada */
+  }
+  .lugar svg {
+    flex: none; width: 24px; height: 24px; fill: none; stroke: var(--acento);
+    stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;
+  }
+
+  /* Marcador de la persona: punto, halo y cono de rumbo. */
+  .yo { position: relative; width: 72px; height: 72px; touch-action: none; }
+  .yo .halo {
+    position: absolute; inset: 10px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(139, 107, 255, .55) 0%, rgba(91, 60, 245, .2) 60%, transparent 72%);
+    animation: pulso 2.4s ease-out infinite;
+  }
+  .yo .cono { position: absolute; inset: 0; transition: transform .12s linear; }
+  .yo .cono svg { width: 100%; height: 100%; display: block; overflow: visible; }
+  .yo .punto {
+    position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px;
+    border-radius: 50%; background: var(--primario); border: 3px solid #fff;
+    box-shadow: 0 0 0 2px rgba(91, 60, 245, .65), 0 2px 8px rgba(0, 0, 0, .5);
+  }
+  @keyframes pulso { 0% { transform: scale(.7); opacity: 1; } 100% { transform: scale(1.25); opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    .yo .halo { animation: none; }
+    .yo .cono { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div id="map" role="application" aria-label="Mapa del campus"></div>
+<div id="falla" hidden>No se pudo cargar el mapa. Revisa tu conexión a internet.</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="ubicacion_manual.js"></script>
+</body>
+</html>

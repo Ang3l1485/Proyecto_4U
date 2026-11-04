@@ -1,0 +1,13 @@
+# Entorno y cachés
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Informes de los validadores (infra ARCHITECTURE §5.11)
+.validacion/
+
+# Variables locales: nunca se suben secretos
+.env
+.env.*

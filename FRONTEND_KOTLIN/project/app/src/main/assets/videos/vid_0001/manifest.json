@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "video_id": "vid_0001",
+  "name": "video1",
+  "created_at": "2026-10-09T00:00:00-05:00",
+  "start": { "lat": 6.2017936, "lng": -75.5788621, "heading": 180 },
+  "photos": [
+    {
+      "id": "0001",
+      "file": "photos/0001.png",
+      "thumb": "thumbs/0001.png",
+      "lat": 6.2017936,
+      "lng": -75.5788621,
+      "heading": 180
+    },
+    {
+      "id": "0002",
+      "file": "photos/0002.png",
+      "thumb": "thumbs/0002.png",
+      "lat": 6.2017313,
+      "lng": -75.5788577,
+      "heading": 180
+    },
+    {
+      "id": "0003",
+      "file": "photos/0003.png",
+      "thumb": "thumbs/0003.png",
+      "lat": 6.2016682,
+      "lng": -75.578862,
+      "heading": 180
+    },
+    {
+      "id": "0004",
+      "file": "photos/0004.png",
+      "thumb": "thumbs/0004.png",
+      "lat": 6.2016001,
+      "lng": -75.5788583,
+      "heading": 180
+    },
+    {
+      "id": "0005",
+      "file": "photos/0005.png",
+      "thumb": "thumbs/0005.png",
+      "lat": 6.2015529,
+      "lng": -75.5788604,
+      "heading": 180
+    },
+    {
+      "id": "0006",
+      "file": "photos/0006.png",
+      "thumb": "thumbs/0006.png",
+      "lat": 6.2014725,
+      "lng": -75.5788661,
+      "heading": 180
+    }
+  ]
+}

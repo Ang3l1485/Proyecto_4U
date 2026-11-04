@@ -1,0 +1,188 @@
+# CI de Terraform de INFRASTRUCTURA_TERRAFORM (ARCHITECTURE §3.9 y §5.9; lote INF-0.2).
+# - Pull request: fmt -check, tflint, validate y plan de envs/dev con el rol de solo lectura gha-terraform-plan.
+#   El plan se publica (o se actualiza) como comentario del PR.
+# - Push a main: plan + apply de envs/dev con el rol gha-terraform, detrás de la aprobación manual del entorno dev de
+#   GitHub (solo admite la rama main).
+# bootstrap/ no se planifica ni se aplica aquí: se aplica a mano (INF-0.1). Sí pasa por fmt -check y tflint.
+name: infra
+
+on:
+  pull_request:
+    paths:
+      - "INFRASTRUCTURA_TERRAFORM/project/**"
+      - ".github/workflows/infra.yml"
+  push:
+    branches: [main]
+    paths:
+      - "INFRASTRUCTURA_TERRAFORM/project/**"
+      - ".github/workflows/infra.yml"
+
+permissions: {}
+
+# Un PR solo necesita su último plan: uno nuevo cancela el anterior. Los apply de main van en fila y no se interrumpen;
+# si se acumulan varios pendientes, GitHub deja solo el más reciente, que aplica el árbol completo de main.
+concurrency:
+  group: infra-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # La misma versión que en las máquinas del equipo, para que fmt -check y plan den lo mismo en local y en CI.
+  TF_VERSION: "1.16.6"
+  TFLINT_VERSION: "v0.65.0"
+  CUENTA_AWS: "648617469176"
+  TF_IN_AUTOMATION: "1"
+  TF_INPUT: "0"
+
+defaults:
+  run:
+    shell: bash
+    working-directory: INFRASTRUCTURA_TERRAFORM/project
+
+jobs:
+  plan:
+    name: plan (PR)
+    # Los PR desde forks no reciben token OIDC: se omiten en vez de fallar.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
+        with:
+          tflint_version: ${{ env.TFLINT_VERSION }}
+
+      - name: terraform fmt -check
+        run: terraform fmt -check -recursive -diff
+
+      - name: tflint
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          tflint --init --config="$PWD/.tflint.hcl"
+          tflint --recursive --config="$PWD/.tflint.hcl" --format=compact
+
+      - name: Credenciales de AWS (gha-terraform-plan)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROL_TERRAFORM_PLAN_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: infra-plan-${{ github.run_id }}
+          allowed-account-ids: ${{ env.CUENTA_AWS }}
+
+      - name: terraform init
+        run: terraform -chdir=envs/dev init -input=false -lockfile=readonly
+
+      - name: terraform validate
+        run: terraform -chdir=envs/dev validate -no-color
+
+      - name: terraform plan
+        id: plan
+        run: |
+          set -o pipefail
+          terraform -chdir=envs/dev plan -input=false -no-color -lock-timeout=5m -out=tfplan 2>&1 \
+            | tee "$RUNNER_TEMP/plan.txt"
+
+      - name: Comentar el plan en el PR
+        if: ${{ !cancelled() && steps.plan.outcome != 'skipped' }}
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PLAN_RESULTADO: ${{ steps.plan.outcome }}
+        with:
+          script: |
+            const fs = require('fs');
+            const marcador = '<!-- infra-plan envs/dev -->';
+            let plan;
+            try {
+              plan = fs.readFileSync(`${process.env.RUNNER_TEMP}/plan.txt`, 'utf8');
+            } catch {
+              plan = '(el plan no produjo salida)';
+            }
+            const limite = 60000;
+            if (plan.length > limite) {
+              plan = '…(recortado: el plan completo está en el log del job)\n' + plan.slice(-limite);
+            }
+            const resumen = plan.split('\n').find((l) => /^(No changes\.|Plan: |Changes to Outputs:|Error: )/.test(l));
+            const correcto = process.env.PLAN_RESULTADO === 'success';
+            const enlace = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              marcador,
+              `### Terraform plan · \`envs/dev\` · ${correcto ? 'correcto' : 'falló'}`,
+              `Commit \`${context.payload.pull_request.head.sha.slice(0, 7)}\` · [ejecución](${enlace})`,
+              '',
+              resumen ? `**${resumen.trim()}**` : '',
+              '',
+              '<details><summary>Salida completa</summary>',
+              '',
+              '```',
+              plan.replace(/```/g, "'''"),
+              '```',
+              '</details>',
+            ].join('\n');
+            const comentarios = await github.paginate(github.rest.issues.listComments, {
+              ...context.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const previo = comentarios.find(
+              (c) => c.user && c.user.login === 'github-actions[bot]' && (c.body || '').includes(marcador),
+            );
+            if (previo) {
+              await github.rest.issues.updateComment({ ...context.repo, comment_id: previo.id, body });
+            } else {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
+            }
+
+  apply:
+    name: apply (main)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # Aprobación manual y solo rama main (INF-0.1). Sin este entorno, AWS rechaza asumir gha-terraform.
+    environment: dev
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: terraform fmt -check
+        run: terraform fmt -check -recursive -diff
+
+      - name: Credenciales de AWS (gha-terraform)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROL_TERRAFORM_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: infra-apply-${{ github.run_id }}
+          allowed-account-ids: ${{ env.CUENTA_AWS }}
+
+      - name: terraform init
+        run: terraform -chdir=envs/dev init -input=false -lockfile=readonly
+
+      - name: terraform validate
+        run: terraform -chdir=envs/dev validate -no-color
+
+      - name: terraform plan
+        run: terraform -chdir=envs/dev plan -input=false -no-color -lock-timeout=5m -out=tfplan
+
+      - name: terraform apply
+        run: terraform -chdir=envs/dev apply -input=false -no-color -lock-timeout=5m tfplan
