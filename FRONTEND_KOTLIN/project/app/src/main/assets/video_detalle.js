@@ -8,7 +8,9 @@ const { $, ic, esc, toast, dialogo, confirmar, medir } = MapaBase;
 const call = base.call, B = base.existe();   // B: hay puente (en un navegador no) → si no, datos de demo
 const CARDINALES = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
 
-const S = { video: null, fotos: [], sel: null };
+// FE-4.1: `editable` (renombrar y eliminar permitidos), `nota` (por qué no) y `otrosPedidos` («Mostrar otros videos» se
+// carga la primera vez que se activa).
+const S = { video: null, fotos: [], sel: null, editable: true, otrosPedidos: false };
 
 // ── Mapa ───────────────────────────────────────
 // Las teselas OSM llegan al zoom 19; más allá se amplían para poder acercarse a fotos muy juntas.
@@ -62,7 +64,14 @@ function renderTitulo() {
   const v = S.video; if (!v) return;
   $('t-nombre').textContent = v.nombre;
   const n = S.fotos.length;
-  $('t-meta').textContent = [fmtFecha(v.fecha), n === 1 ? '1 foto' : n + ' fotos', fmtDist(distancia(S.fotos))].filter(Boolean).join(' · ');
+  $('t-meta').textContent = [v.local ? 'En este teléfono, sin subir' : null, fmtFecha(v.fecha), n === 1 ? '1 foto' : n + ' fotos',
+    fmtDist(distancia(S.fotos))].filter(Boolean).join(' · ');
+  const nota = $('t-nota');
+  nota.textContent = v.nota || '';
+  nota.classList.toggle('hidden', !v.nota);
+  $('btn-ren').disabled = !S.editable;
+  $('btn-del').disabled = !S.editable;
+  medir();
 }
 
 // ── Selección: marcador, tira y vista previa siempre sincronizados ──
@@ -102,40 +111,47 @@ function renderCard() {
     <div class="c-head"><img class="c-img" alt="Vista previa de la foto ${i + 1}" src="${esc(f.thumb)}" onerror="this.style.visibility='hidden'">
       <div><h2>Foto ${i + 1} de ${S.fotos.length}</h2>
         <div class="meta"><div>${ic('pin')}<span class="pos"></span></div><div>${ic('compass')}<span class="rum"></span></div></div></div></div>
-    <div class="acts"><button id="a-ver">${ic('img')}<span>Ver detalle</span></button><button class="del" id="a-del">${ic('trash')}<span>Eliminar foto</span></button></div>`;
+    <div class="acts"><button id="a-ver" disabled aria-label="Ver detalle: próximamente">${ic('img')}<span>Detalle (próximamente)</span></button><button class="del" id="a-del">${ic('trash')}<span>Eliminar foto</span></button></div>`;
   c.querySelector('.pos').textContent = f.lat.toFixed(6) + ', ' + f.lng.toFixed(6);
-  c.querySelector('.rum').textContent = f.rumbo == null ? 'Orientación: sin dato'
-    : 'Orientación: ' + Math.round(f.rumbo) + '° ' + CARDINALES[Math.round(f.rumbo / 45) % 8];
+  // FE-4.1: con rumbo negativo `% 8` daba un índice negativo («undefined»): se normaliza a 0…360 antes.
+  const r = f.rumbo == null ? null : ((f.rumbo % 360) + 360) % 360;
+  c.querySelector('.rum').textContent = r == null ? 'Orientación: sin dato'
+    : 'Orientación: ' + Math.round(r) + '° ' + CARDINALES[Math.round(r / 45) % 8];
   c.querySelector('.x').onclick = () => seleccionar(null);
-  $('a-ver').onclick = () => { if (!call('abrirFoto', f.id)) toast('Detalle de imagen (vista 7.12)'); };
-  $('a-del').onclick = () => confirmar('¿Eliminar esta foto? Dejará de usarse para ubicar a los usuarios.', () => eliminarFoto(f.id));
+  // 7.12 (Detalle de imagen) está fuera de FE-4.1: el botón queda deshabilitado.
+  const del = $('a-del');
+  del.disabled = !S.editable;
+  del.onclick = () => confirmar('¿Eliminar esta foto? Dejará de usarse para ubicar a los usuarios.', () => eliminarFoto(f.id));
   medir();
 }
 
 // ── Acciones ───────────────────────────────────
+// FE-4.1: las acciones las confirma Kotlin. Mientras el servidor responde, la app tapa el mapa con un aviso
+// («Eliminando…»); si falla, muestra el error con «Reintentar» y vuelve a enviar el video tal como está (cargarVideo).
 function eliminarFoto(id) {
-  call('eliminarFoto', id);
-  S.fotos = S.fotos.filter((f) => f.id !== id);   // se aplica ya; Kotlin confirma enviando el video actualizado
+  if (!call('eliminarFoto', id)) { toast('Foto eliminada (demo)'); }
+  S.fotos = S.fotos.filter((f) => f.id !== id);   // se aplica ya; si el servidor falla, Kotlin la devuelve
   if (S.sel === id) S.sel = null;
-  pintar(); toast('Foto eliminada');
+  pintar();
   if (!S.fotos.length) {
     confirmar('Este video se quedó sin fotos. ¿Quieres eliminarlo también?', eliminarVideo, 'Eliminar video');
   }
 }
+// Ya no sale sola a los 900 ms: Kotlin vuelve a la lista solo cuando el servidor confirmó el borrado (202).
 function eliminarVideo() {
-  call('eliminarVideo'); toast('Video eliminado');
-  setTimeout(() => { if (!call('salir')) toast('Volverías a la lista de videos'); }, 900);
+  if (!call('eliminarVideo')) toast('Video eliminado (demo)');
 }
 $('btn-ren').onclick = () => {
-  if (!S.video) return;
+  if (!S.video || !S.editable) return;
   dialogo({
     texto: 'Nuevo nombre del video', input: true, valor: S.video.nombre, label: 'Guardar',
-    valida: (v) => v.length > 0 && v !== S.video.nombre,
-    ok: (nombre) => { S.video.nombre = nombre; renderTitulo(); call('renombrar', nombre); toast('Video renombrado'); },
+    valida: (v) => v.length > 0 && v.length <= 40 && v !== S.video.nombre,
+    // El nombre nuevo llega con el siguiente cargarVideo, cuando el servidor (o el disco) lo guardó.
+    ok: (nombre) => { if (!call('renombrar', nombre)) { S.video.nombre = nombre; renderTitulo(); } },
   });
 };
 $('btn-del').onclick = () => {
-  if (!S.video) return;
+  if (!S.video || !S.editable) return;
   const n = S.fotos.length;
   dialogo({
     texto: `Vas a eliminar «${S.video.nombre}» y sus ${n} fotos. Esto quitará esas fotos del sistema de ubicación y no se puede deshacer.\n\nEscribe el nombre del video para confirmar.`,
@@ -144,21 +160,30 @@ $('btn-del').onclick = () => {
   });
 };
 map.on('click', () => seleccionar(null));
-$('chk-otros').addEventListener('change', (e) => { e.target.checked ? capas.otros.addTo(map) : capas.otros.remove(); });
+$('chk-otros').addEventListener('change', (e) => {
+  if (e.target.checked && !S.otrosPedidos) {   // FE-4.1: se cargan (con tope) la primera vez que se activa
+    S.otrosPedidos = true;
+    if (call('pedirOtros')) toast('Cargando las fotos de otros videos…');
+  }
+  e.target.checked ? capas.otros.addTo(map) : capas.otros.remove();
+});
 
 // ── API para Kotlin ────────────────────────────
 window.cargarVideo = (json) => {
   const v = JSON.parse(json), nuevo = !S.video || S.video.id !== v.id;
-  S.video = v; S.fotos = v.fotos || [];
+  S.video = v; S.fotos = v.fotos || []; S.editable = v.editable !== false;
   if (S.sel && !S.fotos.some((f) => f.id === S.sel)) S.sel = null;
   pintar();
   if (nuevo) ajustar();   // se encuadra solo la primera vez: editar no debe mover el mapa
 };
-// Fotos de los demás videos, en gris tenue, como contexto (se muestran con el conmutador).
+// Fotos de los demás videos, en gris tenue, como contexto (se muestran con el conmutador). FE-4.1: llega
+// {videos: [{id, fotos: [{lat, lng}]}], aviso} (antes, solo la lista); se acepta también la lista sola.
 window.cargarOtros = (json) => {
+  const d = JSON.parse(json), lista = Array.isArray(d) ? d : (d.videos || []);
   capas.otros.clearLayers();
-  JSON.parse(json).forEach((v) => (v.fotos || []).forEach((f) =>
+  lista.forEach((v) => (v.fotos || []).forEach((f) =>
     L.circleMarker([f.lat, f.lng], { radius: 5, color: '#64748b', weight: 1, fillColor: '#64748b', fillOpacity: .6, interactive: false }).addTo(capas.otros)));
+  if (!Array.isArray(d) && d.aviso) toast(d.aviso);
 };
 // Botón Atrás: cierra primero diálogo y selección; devuelve true si lo consumió.
 window.onAtras = () => {

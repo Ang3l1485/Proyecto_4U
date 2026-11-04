@@ -59,6 +59,9 @@ button{cursor:pointer;min-height:48px;display:inline-flex;align-items:center;jus
 .bar{display:flex;gap:10px;border-top:1px solid rgba(99,102,241,.3);padding-top:12px}
 .bar button{min-height:52px;border-radius:var(--r);font-weight:600;font-size:.95rem;border:1.5px solid var(--bd);background:var(--surf)}
 #btn-ren{flex:1;color:#a5b4fc}
+.bar button:disabled{opacity:.4}
+/* FE-4.1: por qué no se puede renombrar ni eliminar (p. ej. un recorrido del teléfono que se está subiendo) */
+.ttl .nota{color:var(--warn);font-size:.78rem;margin-top:4px;line-height:1.3}
 /* "Eliminar video" va separado y en rojo para evitar toques accidentales */
 #btn-del{flex:0 0 42%;margin-left:14px;border-color:var(--bad);color:var(--bad)}
 
@@ -106,6 +109,7 @@ button:focus-visible,input:focus-visible{outline:3px solid #fff;outline-offset:2
     <div class="ttl">
       <h1 id="t-nombre">Video</h1>
       <p id="t-meta"></p>
+      <p id="t-nota" class="nota hidden" role="status"></p>
     </div>
   </div>
   <label class="sw"><input type="checkbox" id="chk-otros"> Mostrar otros videos</label>
