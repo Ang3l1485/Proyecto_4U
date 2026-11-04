@@ -280,7 +280,9 @@ fun FilaLugar(lugar: LugarDestino, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        // Miniatura: foto de referencia o, si no hay, el ícono de la categoría.
+        // Miniatura: foto del lugar (`imagenUrl`) o, si no hay o no carga (FE-3.1: URL vencida, sin red), el ícono de
+        // la categoría.
+        var fotoFallo by remember(lugar.imagenUrl) { mutableStateOf(false) }
         Box(
             modifier = Modifier
                 .size(64.dp)
@@ -288,12 +290,13 @@ fun FilaLugar(lugar: LugarDestino, onClick: () -> Unit) {
                 .background(CampusColors.SuperficieAlta),
             contentAlignment = Alignment.Center,
         ) {
-            if (lugar.imagenUrl != null) {
+            if (lugar.imagenUrl != null && !fotoFallo) {
                 AsyncImage(
                     model = lugar.imagenUrl,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
+                    onError = { fotoFallo = true },
                 )
             } else {
                 Icon(

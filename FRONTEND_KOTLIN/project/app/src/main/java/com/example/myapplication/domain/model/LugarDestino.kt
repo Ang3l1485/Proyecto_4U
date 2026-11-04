@@ -22,7 +22,9 @@ enum class CategoriaLugar(val etiqueta: String, val etiquetaPlural: String) {
 }
 
 /**
- * Lugar al que se puede ir (vista 6.4).
+ * Lugar del campus: el único modelo de lugar de la app (FE-3.4 lo unificó con el antiguo `Lugar` del editor de mapa).
+ * Lo usan Selección de destino (6.4), el Resultado (6.3, `SesionDeNavegacion`), el editor de mapa (7.8) y, dentro de
+ * [LugarAdmin], la lista y el formulario de lugares (7.6, 7.7).
  *
  * [alias] son otros nombres que la persona puede decir ("biblioteca", "los trillizos").
  * [distanciaMetros] es la distancia desde la posición actual; es null si aún no hay ubicación.

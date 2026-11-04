@@ -3,10 +3,12 @@ package com.example.myapplication.ui.destino
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.myapplication.data.local.GrafoDeLaApp
+import com.example.myapplication.data.remote.RemoteLugaresRepository
 import com.example.myapplication.data.repository.LugaresRepository
-import com.example.myapplication.data.repository.LugaresRepositoryStub
 import com.example.myapplication.domain.model.CategoriaLugar
 import com.example.myapplication.domain.model.LugarDestino
+import com.example.myapplication.domain.model.SesionDeNavegacion
 import com.example.myapplication.domain.usecase.BuscarLugares
 import com.example.myapplication.domain.usecase.InterpretarRespuesta
 import com.example.myapplication.domain.usecase.Respuesta
@@ -45,7 +47,10 @@ class SeleccionDestinoViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // --- Dependencias -------------------------------------------------------
-    private val repositorio: LugaresRepository = LugaresRepositoryStub()
+    // FE-3.1: `GET /v1/places` real. FE-3.2: con la posición vigente de «Ubicarse» (SesionDeNavegacion: alta o media y
+    // ≤ 2 min) el backend da distancias y ordena por cercanía; sin ella, distancias nulas y orden por nombre (ADR-FE-23).
+    private val repositorio: LugaresRepository =
+        RemoteLugaresRepository(posicion = { SesionDeNavegacion.posicionVigente() })
     private val voz = VoiceController(app)
 
     // --- Salidas hacia la UI ------------------------------------------------
@@ -166,6 +171,9 @@ class SeleccionDestinoViewModel(app: Application) : AndroidViewModel(app) {
                 _estado.update { it.copy(cargando = false) }
                 refiltrar()
                 AppLog.i(TAG, "Lugares cargados: ${todos.size}")
+                // FE-5.1: avisa (línea `Grafo`, una vez por proceso) de las entradas del grafo sin lugar en el backend.
+                // Nunca cambia el flujo de 6.4: cualquier fallo se ignora.
+                runCatching { GrafoDeLaApp.avisarEmparejamiento(getApplication<Application>(), todos) }
                 if (conVoz) preguntarDestino()
             } catch (e: CancellationException) {
                 throw e

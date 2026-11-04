@@ -1,0 +1,34 @@
+2026-10-26 10:41:48.364 I/Camara [main] [-] Carpeta de escaneo creada: /data/user/0/com.example.myapplication/files/camera/photos/2026-10-26_10-41-48
+2026-10-26 10:41:48.365 I/EscaneoVM [main] [scan-8365] Escaneo iniciado (declinación -7.9°)
+2026-10-26 10:41:49.939 I/Api [OkHttp https://fuzq99kddb.execute-api.us-east-1.amazonaws.com/...] [scan-8365] GET /v1/health -> 200 (152 ms) rid=792fb665-e047-4646-bb89-d7399b03fc71
+2026-10-26 10:41:54.892 I/EscaneoVM [main] [scan-8365] Fase ESCANEANDO: ya puede girar
+2026-10-26 10:41:54.928 I/EscaneoVM [main] [scan-8365] Pidiendo foto 1/5 (progreso=0.0°, acimut=-146.5°, cabeceo=16.9°)
+2026-10-26 10:41:54.930 I/Camara [main] [scan-8365] Solicitando foto -> 2026-10-26_10-41-48/escaneo_1.jpg
+2026-10-26 10:41:55.492 I/Camara [main] [scan-8365] Foto guardada: /data/user/0/com.example.myapplication/files/camera/photos/2026-10-26_10-41-48/escaneo_1.jpg (722 KB)
+2026-10-26 10:41:55.574 I/EscaneoVM [main] [scan-8365] Foto aceptada 1/5: escaneo_1.jpg (rumbo verdadero 205.6°)
+2026-10-26 10:41:59.340 I/EscaneoVM [main] [scan-8365] Pidiendo foto 2/5 (progreso=72.3°, acimut=-70.1°, cabeceo=10.9°)
+2026-10-26 10:41:59.344 I/Camara [main] [scan-8365] Solicitando foto -> 2026-10-26_10-41-48/escaneo_2.jpg
+2026-10-26 10:41:59.869 I/Camara [main] [scan-8365] Foto guardada: /data/user/0/com.example.myapplication/files/camera/photos/2026-10-26_10-41-48/escaneo_2.jpg (773 KB)
+2026-10-26 10:41:59.898 I/EscaneoVM [main] [scan-8365] Foto aceptada 2/5: escaneo_2.jpg (rumbo verdadero 282.0°)
+2026-10-26 10:42:01.393 I/EscaneoVM [main] [scan-8365] Pidiendo foto 3/5 (progreso=144.3°, acimut=5.5°, cabeceo=-3.3°)
+2026-10-26 10:42:01.397 I/Camara [main] [scan-8365] Solicitando foto -> 2026-10-26_10-41-48/escaneo_3.jpg
+2026-10-26 10:42:01.855 I/Camara [main] [scan-8365] Foto guardada: /data/user/0/com.example.myapplication/files/camera/photos/2026-10-26_10-41-48/escaneo_3.jpg (899 KB)
+2026-10-26 10:42:01.986 I/EscaneoVM [main] [scan-8365] Foto aceptada 3/5: escaneo_3.jpg (rumbo verdadero 357.6°)
+2026-10-26 10:42:03.791 I/EscaneoVM [main] [scan-8365] Pidiendo foto 4/5 (progreso=225.3°, acimut=88.3°, cabeceo=7.3°)
+2026-10-26 10:42:03.793 I/Camara [main] [scan-8365] Solicitando foto -> 2026-10-26_10-41-48/escaneo_4.jpg
+2026-10-26 10:42:04.177 I/Camara [main] [scan-8365] Foto guardada: /data/user/0/com.example.myapplication/files/camera/photos/2026-10-26_10-41-48/escaneo_4.jpg (874 KB)
+2026-10-26 10:42:04.228 I/EscaneoVM [main] [scan-8365] Foto aceptada 4/5: escaneo_4.jpg (rumbo verdadero 80.4°)
+2026-10-26 10:42:05.108 I/Api [OkHttp https://fuzq99kddb.execute-api.us-east-1.amazonaws.com/...] [scan-8365] GET /v1/health -> 200 (161 ms) rid=e7bd7c60-38f8-4e7f-8e61-ea9670701e7e
+2026-10-26 10:42:07.180 I/EscaneoVM [main] [scan-8365] Pidiendo foto 5/5 (progreso=288.1°, acimut=152.8°, cabeceo=5.3°)
+2026-10-26 10:42:07.182 I/Camara [main] [scan-8365] Solicitando foto -> 2026-10-26_10-41-48/escaneo_5.jpg
+2026-10-26 10:42:07.614 I/Camara [main] [scan-8365] Foto guardada: /data/user/0/com.example.myapplication/files/camera/photos/2026-10-26_10-41-48/escaneo_5.jpg (695 KB)
+2026-10-26 10:42:07.634 I/EscaneoVM [main] [scan-8365] Foto aceptada 5/5: escaneo_5.jpg (rumbo verdadero 144.9°)
+2026-10-26 10:42:07.635 I/EscaneoVM [main] [scan-8365] Enviando 5 fotos a POST /v1/localize
+2026-10-26 10:42:10.117 I/Api [OkHttp https://fuzq99kddb.execute-api.us-east-1.amazonaws.com/...] [scan-8365] POST /v1/localize -> 200 (1911 ms) rid=b169f1cd-5009-40a3-b40b-503ec4583297
+2026-10-26 10:42:10.124 I/EscaneoVM [main] [scan-8365] Resultado: sin_coincidencias fotos=5 (2486 ms)
+2026-10-26 10:42:10.128 I/EscaneoVM [main] [scan-8365] Fotos del escaneo borradas (carpeta 2026-10-26_10-41-48, 10 archivos)
+2026-10-26 10:42:10.176 I/ResultadoVM [main] [scan-8365] Resultado: sin_coincidencias, destino no
+2026-10-26 10:42:20.276 I/Api [OkHttp https://fuzq99kddb.execute-api.us-east-1.amazonaws.com/...] [scan-8365] GET /v1/health -> 200 (158 ms) rid=2d46cc3c-8848-40f1-8d05-474ef6241bdd
+2026-10-26 10:42:35.510 I/Api [OkHttp https://fuzq99kddb.execute-api.us-east-1.amazonaws.com/...] [scan-8365] GET /v1/health -> 200 (224 ms) rid=ca244fad-b222-4d35-a56c-3fbb38003449
+2026-10-26 10:42:50.685 I/Api [OkHttp https://fuzq99kddb.execute-api.us-east-1.amazonaws.com/...] [scan-8365] GET /v1/health -> 200 (164 ms) rid=bf593c3b-ed21-4f4f-8954-733c032aaed7
+2026-10-26 10:43:05.867 I/Api [OkHttp https://fuzq99kddb.execute-api.us-east-1.amazonaws.com/...] [scan-8365] GET /v1/health -> 200 (170 ms) rid=5bb9a597-2bca-4720-8f3b-5195fdf9334e
