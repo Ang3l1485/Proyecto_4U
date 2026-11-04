@@ -4,7 +4,13 @@ import android.app.Application
 import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.myapplication.data.remote.ApiException
+import com.example.myapplication.data.remote.RemoteLocalizacionRepository
+import com.example.myapplication.data.repository.LocalizacionRepository
+import com.example.myapplication.domain.model.ResultadoUbicacion
+import com.example.myapplication.domain.usecase.ConversionRumbo
 import com.example.myapplication.logs.AppLog
+import com.example.myapplication.sensors.Declinacion
 import com.example.myapplication.ui.inicio.VoiceController
 import com.example.myapplication.ui.ubicacion.EscaneoConfig.AVISO_CADA_MS
 import com.example.myapplication.ui.ubicacion.EscaneoConfig.GRADOS_POR_FOTO
@@ -16,27 +22,28 @@ import com.example.myapplication.ui.ubicacion.EscaneoConfig.VELOCIDAD_MAX
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import java.io.File
-import java.io.IOException
+import java.util.Locale
 import kotlin.math.abs
 
 private const val TAG = "EscaneoVM"
 
 /**
- * true  = las fotos NO se borran del disco (ni al cancelar, ni al terminar).
- * false = se borran al cancelar, al reiniciar y al destruir el ViewModel.
- * Ponlo en false antes de publicar la app (ver decisión abierta de privacidad).
+ * true  = las fotos NO se borran del disco (solo para depurar).
+ * false = se borran al recibir la respuesta del backend (o el error), al cancelar, al repetir y al destruir el
+ *         ViewModel, también las que llegan fuera de la fase ESCANEANDO (FE-3.2, decisión abierta 12; validation-3-2
+ *         C3 comprueba esta línea).
  */
-private const val CONSERVAR_FOTOS = true
+internal const val CONSERVAR_FOTOS = false
 
 /**
  * Cerebro del escaneo 360°.
@@ -44,9 +51,9 @@ private const val CONSERVAR_FOTOS = true
  * Responsabilidades:
  *  - Seguir cuánto ha girado el usuario (a partir del acimut del sensor).
  *  - Decidir cuándo pedir una foto (cada 72°, solo si va despacio y con el celular vertical).
- *  - Aceptar cada foto guardada (por ahora SIN control de calidad).
+ *  - Aceptar cada foto guardada (por ahora SIN control de calidad) con su rumbo en norte verdadero.
  *  - Dar retroalimentación por voz, vibración y sonido.
- *  - Enviar las 5 fotos al backend y reportar éxito o error.
+ *  - Enviar las 5 fotos a `POST /v1/localize` y entregar el resultado (o decir el error), y borrar las fotos.
  *
  * Qué NO hace: no toca la cámara ni los sensores directamente; la pantalla se los
  * entrega ([onOrientacion], [onFotoTomada]...) y recibe órdenes por [eventos].
@@ -54,7 +61,8 @@ private const val CONSERVAR_FOTOS = true
 class EscaneoViewModel(app: Application) : AndroidViewModel(app) {
 
     // --- Dependencias -------------------------------------------------------
-    private val backend: EscaneoBackend = EscaneoBackendStub
+    // FE-3.2: `POST /v1/localize` real (antes `EscaneoBackendStub`).
+    private val repositorio: LocalizacionRepository = RemoteLocalizacionRepository(appVersion = versionDeLaApp(app))
     private val voz = VoiceController(app)
     private val feedback = FeedbackCaptura(app)
 
@@ -62,12 +70,16 @@ class EscaneoViewModel(app: Application) : AndroidViewModel(app) {
     private val _estado = MutableStateFlow(EscaneoUiState())
     val estado: StateFlow<EscaneoUiState> = _estado.asStateFlow()
 
-    private val _eventos = MutableSharedFlow<EscaneoEvento>(extraBufferCapacity = 4)
-    val eventos: SharedFlow<EscaneoEvento> = _eventos.asSharedFlow()
+    // FE-3.2: Channel (un solo colector, la pantalla) en vez de SharedFlow sin repetición: un `Capturar` o un
+    // `Completado` emitido sin colector (p. ej. al rotar) espera al siguiente colector en vez de perderse.
+    private val _eventos = Channel<EscaneoEvento>(Channel.BUFFERED)
+    val eventos: Flow<EscaneoEvento> = _eventos.receiveAsFlow()
 
     // --- Estado interno (no necesita ser observado por la UI) ---------------
-    private val fotos = mutableListOf<File>()   // fotos ya aceptadas
-    private var ultimoAcimut: Float? = null     // acimut de la lectura anterior
+    private val fotos = FotosEscaneo(conservar = CONSERVAR_FOTOS) // fotos aceptadas y su carpeta
+    private var declinacion = 0.0               // grados (este +), calculada al iniciar (Declinacion)
+    private var ultimoAcimut: Float? = null     // acimut de la lectura anterior (magnético)
+    private var acimutPedido: Float? = null     // acimut al pedir la foto en curso (magnético)
     private var ultimoT = 0L                    // instante de la lectura anterior (ms)
     private var ultimoAvance = 0L               // último instante en que el usuario avanzó
     private var velocidad = 0f                  // velocidad angular suavizada (°/s)
@@ -75,19 +87,24 @@ class EscaneoViewModel(app: Application) : AndroidViewModel(app) {
     private var bloqueadoHasta = 0L             // pausa tras fallar una foto
     private var ultimoAviso = 0L                // anti-spam de avisos hablados
     private var job: Job? = null                // corrutina del análisis en el backend
+    private var liberado = false                // onCleared ya corrió: toda foto que llegue se borra
 
     // ========================================================================
     // Acciones que dispara la pantalla
     // ========================================================================
 
-    /** Empieza (o reinicia) el escaneo: instrucciones por voz y luego seguimiento del giro. */
-    fun iniciar() {
+    /**
+     * Empieza (o reinicia) el escaneo en [carpeta] (la crea la pantalla con `crearCarpetaEscaneo`): instrucciones por
+     * voz y luego seguimiento del giro. Borra las fotos del escaneo anterior.
+     */
+    fun iniciar(carpeta: File) {
         job?.cancel()
-        descartarFotos()
+        fotos.abrir(carpeta)
         reiniciarSeguimiento()
+        declinacion = Declinacion.paraLaUltimaPosicion()
         _estado.value = EscaneoUiState()
         AppLog.nuevaSesion("scan")
-        AppLog.i(TAG, "Escaneo iniciado")
+        AppLog.i(TAG, "Escaneo iniciado (declinación %.1f°)".format(Locale.ROOT, declinacion))
         voz.speak(
             "Sostén el celular vertical y gira lentamente hacia la derecha. " +
                 "Sentirás una vibración con cada foto."
@@ -101,12 +118,12 @@ class EscaneoViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Aborta todo y deja el estado limpio. */
+    /** Aborta todo, borra las fotos y deja el estado limpio. */
     fun cancelar() {
-        AppLog.i(TAG, "Escaneo cancelado (${fotos.size} fotos tomadas)")
+        AppLog.i(TAG, "Escaneo cancelado (${fotos.cantidad} fotos tomadas)")
         job?.cancel()
         voz.stopAll()
-        descartarFotos()
+        borrarFotos()
         reiniciarSeguimiento()
         _estado.value = EscaneoUiState()
     }
@@ -146,7 +163,7 @@ class EscaneoViewModel(app: Application) : AndroidViewModel(app) {
         // Velocidad suavizada (media móvil exponencial) para ignorar picos del sensor.
         velocidad = 0.85f * velocidad + 0.15f * (abs(delta) / dt)
 
-        // Solo cuenta el giro hacia la derecha (delta > 0); nunca baja de 0 ni pasa de 360.
+        // El progreso suma el giro con signo (girar a la izquierda resta); nunca baja de 0 ni pasa de 360.
         val progreso = (s.progreso + delta).coerceIn(0f, 360f)
         if (delta > 0.2f) ultimoAvance = ahora
 
@@ -169,15 +186,18 @@ class EscaneoViewModel(app: Application) : AndroidViewModel(app) {
         //  sin captura en curso, sin pausa activa, celular recto, giro lento,
         //  fotos pendientes y ya llegamos al ángulo de la siguiente (n * 72°).
         if (!capturando && ahora >= bloqueadoHasta && inclinacionOk && !rapido &&
-            fotos.size < TOTAL_FOTOS && progreso >= fotos.size * GRADOS_POR_FOTO
+            fotos.cantidad < TOTAL_FOTOS && progreso >= fotos.cantidad * GRADOS_POR_FOTO
         ) {
             capturando = true
+            acimutPedido = acimutGrados
             AppLog.i(
                 TAG,
-                "Pidiendo foto ${fotos.size + 1}/$TOTAL_FOTOS " +
-                    "(progreso=%.1f°, acimut=%.1f°, cabeceo=%.1f°)".format(progreso, acimutGrados, cabeceoGrados)
+                "Pidiendo foto ${fotos.cantidad + 1}/$TOTAL_FOTOS " +
+                    "(progreso=%.1f°, acimut=%.1f°, cabeceo=%.1f°)".format(
+                        Locale.ROOT, progreso, acimutGrados, cabeceoGrados,
+                    )
             )
-            _eventos.tryEmit(EscaneoEvento.Capturar)
+            _eventos.trySend(EscaneoEvento.Capturar)
         }
 
         _estado.value = s.copy(progreso = progreso, inclinacionOk = inclinacionOk, instruccion = instruccion)
@@ -189,26 +209,37 @@ class EscaneoViewModel(app: Application) : AndroidViewModel(app) {
 
     /** CameraX no pudo capturar: pausa 1 s y deja que se reintente solo. */
     fun onFotoFallida() {
+        if (liberado) return
         AppLog.w(TAG, "CameraX no pudo capturar; se reintenta en 1 s")
         capturando = false
         bloqueadoHasta = SystemClock.elapsedRealtime() + 1000
     }
 
-    /** Foto guardada: se acepta siempre (sin control de calidad por ahora). */
+    /**
+     * Foto guardada: se acepta siempre (sin control de calidad por ahora) con el rumbo verdadero del momento en que se
+     * pidió. Una foto que llega fuera de la fase ESCANEANDO o de otra carpeta no se cuenta y se borra (FE-3.2).
+     */
     fun onFotoTomada(archivo: File) {
-        // Si mientras tanto se canceló o falló, la foto no se cuenta (pero queda en disco).
+        if (liberado || !fotos.esDeLaCarpeta(archivo)) {
+            AppLog.w(TAG, "Foto ${archivo.name} de un escaneo ya cerrado: se descarta")
+            fotos.descartar(archivo)
+            return
+        }
         if (_estado.value.fase != Fase.ESCANEANDO) {
-            AppLog.w(TAG, "Foto ${archivo.name} llegó fuera de la fase ESCANEANDO; no se cuenta")
+            AppLog.w(TAG, "Foto ${archivo.name} llegó fuera de la fase ESCANEANDO; no se cuenta y se descarta")
+            fotos.descartar(archivo)
             capturando = false
             return
         }
 
-        fotos += archivo
+        val rumbo = acimutPedido?.let { ConversionRumbo.magneticoAVerdadero(it.toDouble(), declinacion) }
+        fotos.aceptar(archivo, rumbo)
         feedback.confirmar()
-        val n = fotos.size
+        val n = fotos.cantidad
         _estado.update { it.copy(fotos = n) }
         capturando = false
-        AppLog.i(TAG, "Foto aceptada $n/$TOTAL_FOTOS: ${archivo.name}")
+        acimutPedido = null
+        AppLog.i(TAG, "Foto aceptada $n/$TOTAL_FOTOS: ${archivo.name} (rumbo verdadero ${rumbo ?: "?"}°)")
         if (n >= TOTAL_FOTOS) analizar()
     }
 
@@ -216,29 +247,36 @@ class EscaneoViewModel(app: Application) : AndroidViewModel(app) {
     // Backend
     // ========================================================================
 
-    /** Envía las fotos al backend con un tiempo límite. */
+    /** Envía las fotos a `POST /v1/localize` con un tiempo límite; al terminar (bien o mal) borra las fotos. */
     private fun analizar() {
         _estado.update { it.copy(fase = Fase.ANALIZANDO, progreso = 360f) }
-        AppLog.i(TAG, "Enviando ${fotos.size} fotos al backend")
+        val enviadas = fotos.fotos
+        val rumboAlTerminar = ultimoAcimut?.let { ConversionRumbo.magneticoAVerdadero(it.toDouble(), declinacion) }
+        AppLog.i(TAG, "Enviando ${enviadas.size} fotos a POST /v1/localize")
         voz.speak("Listo, analizando.")
         job = viewModelScope.launch {
             val t0 = SystemClock.elapsedRealtime()
             try {
-                withTimeout(TIMEOUT_BACKEND_MS) { backend.analizar(fotos.toList()) }
-                AppLog.i(TAG, "Backend OK en ${SystemClock.elapsedRealtime() - t0} ms")
-                _eventos.emit(EscaneoEvento.Completado)
+                val resultado = withTimeout(TIMEOUT_BACKEND_MS) { repositorio.localizar(enviadas) }
+                AppLog.i(TAG, "Resultado: ${describir(resultado)} (${SystemClock.elapsedRealtime() - t0} ms)")
+                borrarFotos()
+                _eventos.trySend(EscaneoEvento.Completado(resultado, rumboAlTerminar))
             } catch (e: TimeoutCancellationException) {
                 // Importante: va ANTES que CancellationException (es una subclase suya).
-                AppLog.e(TAG, "Backend: tiempo agotado", e)
+                AppLog.w(TAG, "Localización falló (TIEMPO_AGOTADO): sin respuesta en $TIMEOUT_BACKEND_MS ms")
+                borrarFotos()
                 fallar(ErrorEscaneo.TIEMPO_AGOTADO)
             } catch (e: CancellationException) {
                 throw e // cancelación normal (p. ej. el usuario pulsó Cancelar): no es un error
-            } catch (e: IOException) {
-                AppLog.e(TAG, "Backend: error de red", e)
-                fallar(ErrorEscaneo.SIN_CONEXION)
             } catch (e: Exception) {
-                AppLog.e(TAG, "Backend: error inesperado", e)
-                fallar(ErrorEscaneo.SIN_CONEXION)
+                val error = ErrorEscaneo.deExcepcion(e)
+                if (error == ErrorEscaneo.DESCONOCIDO) {
+                    AppLog.e(TAG, "Localización falló (${error.name}): ${detalleError(e)}", e)
+                } else {
+                    AppLog.w(TAG, "Localización falló (${error.name}): ${detalleError(e)}")
+                }
+                borrarFotos()
+                fallar(error)
             }
         }
     }
@@ -267,25 +305,48 @@ class EscaneoViewModel(app: Application) : AndroidViewModel(app) {
     /** Borra toda la memoria del giro para empezar una vuelta desde cero. */
     private fun reiniciarSeguimiento() {
         ultimoAcimut = null
+        acimutPedido = null
         velocidad = 0f
         capturando = false
         bloqueadoHasta = 0L
     }
 
-    /** Suelta la lista de fotos; solo las borra del disco si CONSERVAR_FOTOS es false. */
-    private fun descartarFotos() {
+    /** Cierra el escaneo: con CONSERVAR_FOTOS en false borra su carpeta (originales y copias re-codificadas). */
+    private fun borrarFotos() {
+        val carpeta = fotos.carpeta?.name ?: return
+        val n = fotos.cerrar()
         if (CONSERVAR_FOTOS) {
-            if (fotos.isNotEmpty()) AppLog.i(TAG, "Conservando ${fotos.size} fotos en disco")
+            AppLog.i(TAG, "Fotos del escaneo conservadas (carpeta $carpeta)")
         } else {
-            fotos.forEach { it.delete() }
+            AppLog.i(TAG, "Fotos del escaneo borradas (carpeta $carpeta, $n archivos)")
         }
-        fotos.clear()
+    }
+
+    /** Lo que se registra de un resultado: sin posición ni nombres de lugares (privacidad, HU-23). */
+    private fun describir(r: ResultadoUbicacion): String = when (r) {
+        is ResultadoUbicacion.SinCoincidencias -> "sin_coincidencias fotos=${r.fotosUsadas}"
+        is ResultadoUbicacion.Ubicado ->
+            "ok nivel=${r.nivel.etiqueta} confianza=${"%.2f".format(Locale.ROOT, r.confianza)} " +
+                "cercano=${if (r.lugarCercano != null) "sí" else "no"} referencias=${r.referencias.size} " +
+                "correccion=${r.correccionRumboGrados ?: "-"} fotos=${r.fotosUsadas}/${r.fotosConCoincidencia}"
+    }
+
+    /** Detalle de un error para el registro: código, fallo y `X-Request-Id` (nunca cuerpos ni tokens). */
+    private fun detalleError(e: Exception): String = when (e) {
+        is ApiException -> "HTTP ${e.http} ${e.fallo} rid=${e.requestId ?: "-"}"
+        else -> "${e.javaClass.simpleName}: ${e.message}"
     }
 
     override fun onCleared() {
+        liberado = true
         job?.cancel()
         voz.release()
         feedback.liberar()
-        descartarFotos()
+        borrarFotos()
+    }
+
+    private companion object {
+        fun versionDeLaApp(app: Application): String? =
+            runCatching { app.packageManager.getPackageInfo(app.packageName, 0).versionName }.getOrNull()
     }
 }

@@ -181,7 +181,10 @@ class CalibracionViewModel(app: Application) : AndroidViewModel(app) {
 
     // ── Ciclo de vida ─────────────────────────────
 
-    /** ON_STOP: los sensores no siguen el ciclo de vida, así que se detienen aquí. Cancela la medición. */
+    /**
+     * ON_STOP: cancela la medición (una pasada interrumpida no sirve) y detiene el tracker, que así no vuelve a leer
+     * sensores al volver (el `PdrTracker` ya los quita solo en segundo plano, FE-2.3).
+     */
     fun alIrASegundoPlano() {
         tracker.detener()
         reloj?.cancel()

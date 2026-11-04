@@ -87,7 +87,8 @@ fun CalibracionScreen(
     val ui by vm.ui.collectAsStateWithLifecycle()
     val caminando = ui.fase == FaseCalibracion.CAMINANDO
 
-    // Los sensores no siguen el ciclo de vida: ON_STOP detiene el tracker y cancela la medición.
+    // ON_STOP cancela la medición (una pasada interrumpida no sirve) y detiene el tracker. Aunque no lo hiciera, el
+    // PdrTracker ya quita sus sensores en segundo plano (FE-2.3).
     val owner = LocalLifecycleOwner.current
     DisposableEffect(owner) {
         val observador = LifecycleEventObserver { _, evento ->
