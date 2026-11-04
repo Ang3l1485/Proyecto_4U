@@ -1,0 +1,3 @@
+perfect; everything so far as worked for the batch approach; now we have streaming, fast response
+
+cuz when the user send a photo from fronted_kotlin, it has to be fast;

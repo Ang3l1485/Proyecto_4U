@@ -1,0 +1,20 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowRDSIAMAuth",
+      "Effect": "Allow",
+      "Action": "rds-db:connect",
+      "Resource": "arn:aws:rds-db:us-east-2:ACCOUNT_ID:dbuser:*/postgres"
+    },
+    {
+      "Sid": "AllowS3Export",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:PutObjectAcl"
+      ],
+      "Resource": "arn:aws:s3:::YOUR_EXPORT_BUCKET_NAME/exports/*"
+    }
+  ]
+}
