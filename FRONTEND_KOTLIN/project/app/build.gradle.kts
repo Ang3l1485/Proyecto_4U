@@ -43,6 +43,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.process) // FE-2.3: PdrTracker sigue el ciclo de vida del proceso
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
@@ -59,15 +60,16 @@ dependencies {
     implementation("androidx.camera:camera-view:$cameraxVersion")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:<tu versión>")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:<tu versión>")  // collectAsStateWithLifecycle
     implementation("io.coil-kt:coil-compose:2.7.0")
     // Material3 >= 1.1 (ModalBottomSheet)
 
-    // Networking
+    // Red (ADR-FE-12): Retrofit + OkHttp + Gson; MockWebServer en las pruebas de data/remote/
     implementation(libs.okhttp)
     implementation(libs.gson)
+    implementation(libs.retrofit)
+    implementation(libs.retrofit.converter.gson)
     testImplementation(libs.junit)
+    testImplementation(libs.okhttp.mockwebserver)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

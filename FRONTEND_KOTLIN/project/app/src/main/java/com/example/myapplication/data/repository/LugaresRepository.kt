@@ -5,13 +5,18 @@ import com.example.myapplication.domain.model.LugarDestino
 
 interface LugaresRepository {
     /**
-     * Lugares del campus con su distancia a la posición actual: backend (GET /places).
-     * @throws java.io.IOException si no hay conexión.
+     * Lugares del campus, con su distancia a la posición actual si se conoce (`distanciaMetros`, si no `null`).
+     * Implementación real: `RemoteLugaresRepository` (`GET /v1/places`, FE-3.1; `data/remote/`).
+     * @throws java.io.IOException si no hay conexión (con el backend real, `SinConexionException`); otros fallos del
+     *   backend llegan como `ApiException` o `RespuestaInesperadaException` (ARCHITECTURE §5.10).
      */
     suspend fun obtenerLugares(): List<LugarDestino>
 }
 
-/** Datos de ejemplo. Las coordenadas son aproximadas y solo sirven mientras no exista el backend. */
+/**
+ * Datos de ejemplo. Las coordenadas son aproximadas. Desde FE-3.1 la app usa `RemoteLugaresRepository`; esto queda
+ * para las vistas previas (`@Preview` de Destino) y las pruebas.
+ */
 val LUGARES_DE_PRUEBA: List<LugarDestino> = listOf(
     LugarDestino(
         id = "biblioteca-central", nombre = "Biblioteca Central",
@@ -45,7 +50,7 @@ val LUGARES_DE_PRUEBA: List<LugarDestino> = listOf(
     ),
 )
 
-/** TODO: reemplazar por la implementación real (Retrofit/Ktor con `ApiConfig.kt`, GET /places). */
+/** Stub con [LUGARES_DE_PRUEBA] (300 ms). Sin uso en la app desde FE-3.1 (la real es `RemoteLugaresRepository`). */
 class LugaresRepositoryStub : LugaresRepository {
     override suspend fun obtenerLugares(): List<LugarDestino> {
         kotlinx.coroutines.delay(300)

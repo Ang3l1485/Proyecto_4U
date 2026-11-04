@@ -1,6 +1,5 @@
 package com.example.myapplication.ui.admin.panel
 
-import android.text.format.DateUtils
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -45,6 +44,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -56,8 +56,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -65,15 +67,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.foundation.BorderStroke
 import com.example.myapplication.domain.model.ResumenAdmin
 import com.example.myapplication.ui.theme.CampusColors as C
-import java.text.NumberFormat
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /** Callbacks de navegación y acciones del panel. */
 data class PanelAcciones(
@@ -87,6 +88,8 @@ data class PanelAcciones(
     val onCerrarSesion: () -> Unit = {},
     val onVolverModoPublico: () -> Unit = {},
     val onReintentarResumen: () -> Unit = {},
+    /** FE-2.1: tarjeta de subidas → vista 7.5 del recorrido. */
+    val onAbrirSubida: (videoId: String) -> Unit = {},
 )
 
 /**
@@ -107,6 +110,7 @@ fun PanelAdminScreen(
     onVolverModoPublico: () -> Unit,
     onSesionCerrada: () -> Unit,
     onSinSesion: () -> Unit,
+    onAbrirSubida: (videoId: String) -> Unit = {},
     viewModel: PanelAdminViewModel = viewModel(
         factory = PanelAdminViewModel.Factory(LocalContext.current.applicationContext),
     ),
@@ -120,6 +124,16 @@ fun PanelAdminScreen(
                 PanelEvento.SinSesion -> onSinSesion()
             }
         }
+    }
+    // FE-2.2: al volver al Panel (p. ej. desde 7.5 con «Guardar y subir después», que regresa a esta misma entrada de
+    // la pila con el mismo ViewModel), relee los recorridos locales: tarjeta de subidas y «Fotos pendientes» al día.
+    val ciclo = LocalLifecycleOwner.current
+    DisposableEffect(ciclo, viewModel) {
+        val observador = LifecycleEventObserver { _, evento ->
+            if (evento == Lifecycle.Event.ON_RESUME) viewModel.alReanudar()
+        }
+        ciclo.lifecycle.addObserver(observador)
+        onDispose { ciclo.lifecycle.removeObserver(observador) }
     }
 
     PanelAdminContent(
@@ -135,6 +149,7 @@ fun PanelAdminScreen(
             onCerrarSesion = viewModel::cerrarSesion,
             onVolverModoPublico = onVolverModoPublico,
             onReintentarResumen = viewModel::cargarResumen,
+            onAbrirSubida = onAbrirSubida,
         ),
     )
 }
@@ -151,6 +166,7 @@ internal fun PanelAdminContent(state: PanelUiState, acciones: PanelAcciones) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Encabezado(state, acciones.onAjustes)
+        state.avisoSubidas?.let { TarjetaSubidas(it, acciones.onAbrirSubida) }
         FilaTarjetas(
             izquierda = Acceso("Recolector de imágenes", "Captura y gestiona las imágenes del entorno.", Icons.Outlined.PhotoCamera, acciones.onRecolector, destacada = true),
             derecha = Acceso("Lugares", "Administra los lugares del campus.", Icons.Outlined.Place, acciones.onLugares),
@@ -235,6 +251,37 @@ private fun Encabezado(state: PanelUiState, onAjustes: () -> Unit) {
         IconButton(onClick = onAjustes, modifier = Modifier.size(56.dp)) {
             Icon(Icons.Outlined.Settings, contentDescription = "Ajustes", tint = C.Acento, modifier = Modifier.size(28.dp))
         }
+    }
+}
+
+// ───────────────────────────── Subidas (FE-2.1) ─────────────────────────────
+
+@Composable
+private fun TarjetaSubidas(aviso: AvisoSubidas, onAbrir: (String) -> Unit) {
+    val forma = RoundedCornerShape(18.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(forma)
+            .background(C.Superficie)
+            .border(1.5.dp, C.Acento, forma)
+            .clickable(role = Role.Button, onClickLabel = aviso.accion) { onAbrir(aviso.videoId) }
+            .semantics(mergeDescendants = true) {
+                contentDescription = "${aviso.titulo}. ${aviso.detalle}. ${aviso.accion}"
+                liveRegion = LiveRegionMode.Polite
+            }
+            .heightIn(min = 64.dp)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Outlined.CloudUpload, contentDescription = null, tint = C.Acento, modifier = Modifier.size(28.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(aviso.titulo, color = C.TextoPrincipal, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, lineHeight = 21.sp)
+            Text(aviso.detalle, color = C.TextoSuave, fontSize = 14.sp, lineHeight = 19.sp)
+        }
+        Spacer(Modifier.width(8.dp))
+        Text(aviso.accion, color = C.Acento, fontSize = 14.sp, fontWeight = FontWeight.Medium)
     }
 }
 
@@ -356,16 +403,16 @@ private fun ResumenRapido(state: PanelUiState, onReintentar: () -> Unit) {
         }
 
         val datos = listOf(
-            Dato(Icons.Outlined.PhotoCamera, numero(r?.totalFotos), "Fotos en el dataset"),
-            Dato(Icons.Outlined.Place, numero(r?.totalLugares), "Lugares registrados"),
-            Dato(Icons.Outlined.WarningAmber, numero(r?.alertasActivas), "Alertas activas"),
+            Dato(Icons.Outlined.PhotoCamera, TextosResumen.numero(r?.totalFotos), "Fotos en el dataset"),
+            Dato(Icons.Outlined.Place, TextosResumen.numero(r?.totalLugares), "Lugares registrados"),
+            Dato(Icons.Outlined.WarningAmber, TextosResumen.numero(r?.alertasActivas), "Alertas activas"),
             Dato(
                 Icons.Outlined.Videocam,
-                numero(r?.ultimoVideoNumero),
+                TextosResumen.numero(r?.ultimoVideoNumero),
                 "Último video recolectado",
-                r?.ultimoVideoFecha?.let(::textoFecha),
+                r?.ultimoVideoFecha?.let { TextosResumen.fecha(it) },
             ),
-            Dato(Icons.Outlined.CloudUpload, numero(r?.fotosPendientes), "Fotos pendientes de subir"),
+            Dato(Icons.Outlined.CloudUpload, TextosResumen.numero(r?.fotosPendientes), "Fotos pendientes de subir"),
         )
         Row(
             modifier = Modifier.height(IntrinsicSize.Max),
@@ -439,20 +486,6 @@ private fun Pie() {
     }
 }
 
-// ───────────────────────────── Utilidades ─────────────────────────────
-
-private fun numero(valor: Int?): String =
-    valor?.let { NumberFormat.getIntegerInstance().format(it) } ?: "—"
-
-private fun textoFecha(millis: Long): String {
-    val hora = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(millis))
-    return when {
-        DateUtils.isToday(millis) -> "Hoy, $hora"
-        DateUtils.isToday(millis + DateUtils.DAY_IN_MILLIS) -> "Ayer, $hora"
-        else -> SimpleDateFormat("d MMM, HH:mm", Locale.getDefault()).format(Date(millis))
-    }
-}
-
 // ───────────────────────────── Previews ─────────────────────────────
 
 @Preview(showBackground = true, widthDp = 390, heightDp = 900)
@@ -463,6 +496,19 @@ private fun PreviewPanel() = PanelAdminContent(
         rolTexto = "Administrador del sistema",
         cargandoResumen = false,
         resumen = ResumenAdmin(2842, 48, 3, 12, System.currentTimeMillis(), 27),
+    ),
+    PanelAcciones(),
+)
+
+@Preview(showBackground = true, widthDp = 390, heightDp = 900)
+@Composable
+private fun PreviewPanelSubiendo() = PanelAdminContent(
+    PanelUiState(
+        nombre = "Alejandro",
+        rolTexto = "Administrador del sistema",
+        cargandoResumen = false,
+        resumen = ResumenAdmin(2842, 48, 3, 12, System.currentTimeMillis(), 27),
+        avisoSubidas = AvisoSubidas("rec_0003", "Subiendo «Entrada norte»", "34 de 80 fotos", "Ver"),
     ),
     PanelAcciones(),
 )

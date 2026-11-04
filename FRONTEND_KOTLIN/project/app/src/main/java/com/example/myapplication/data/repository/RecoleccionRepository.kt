@@ -1,10 +1,15 @@
 package com.example.myapplication.data.repository
 
 import android.content.Context
+import com.example.myapplication.data.local.CerrojoRecoleccion
 import com.example.myapplication.domain.model.DatosFoto
 import com.example.myapplication.domain.model.FotoRecolectada
 import com.example.myapplication.domain.model.InicioRecoleccion
+import com.example.myapplication.domain.model.ProgresoRecoleccion
+import com.example.myapplication.domain.model.PuntoRecorrido
 import com.example.myapplication.domain.model.ResumenRecoleccion
+import com.example.myapplication.domain.model.VideoEnCurso
+import com.example.myapplication.domain.usecase.ModoCaptura
 import com.example.myapplication.logs.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -24,8 +29,8 @@ import java.util.Locale
  * Todo se guarda **de forma continua** en disco: cada foto queda registrada en el manifest apenas
  * se toma, para no perder datos si la app se cierra.
  *
- * TODO: cuando exista el backend, la subida (`POST /collect/videos/{id}/images`) leerá de aquí y
- * marcará las fotos como subidas con [marcarSubida].
+ * La subida (vista 7.5, FE-2.1) no pasa por aquí: la hace la cola de `data/local/` (`AlmacenRecorridos`,
+ * `SubidaRecorrido`, `ColaSubida`) sobre los mismos manifests y con el mismo cerrojo (`CerrojoRecoleccion`).
  */
 interface RecoleccionRepository {
 
@@ -60,8 +65,22 @@ interface RecoleccionRepository {
     /** Borra el video y todas sus fotos locales. */
     suspend fun descartar(videoId: String)
 
-    /** Id de un video que quedó `en_curso` (la app se cerró a mitad de recorrido); `null` si no hay. */
+    /**
+     * Id del video `en_curso` más reciente (mayor `rec_NNNN`; la app se cerró a mitad de recorrido); `null` si no
+     * hay. Los manifests ilegibles se saltan.
+     */
     suspend fun buscarEnCurso(): String?
+
+    /** Lee un video para retomarlo (FE-2.3): nombre, punto de partida, fotos y el último `progress` guardado. */
+    @Throws(IOException::class)
+    suspend fun leerEnCurso(videoId: String): VideoEnCurso
+
+    /**
+     * Guarda el progreso de la grabación en el manifest (clave `progress`, FE-2.3) para poder retomarla. No hace
+     * nada si el video ya no está `en_curso` (p. ej. se finalizó mientras esperaba).
+     */
+    @Throws(IOException::class)
+    suspend fun guardarProgreso(videoId: String, progreso: ProgresoRecoleccion)
 
     /** Fotos guardadas que aún no se han subido (alimenta "fotos pendientes" del panel, 7.2). */
     suspend fun contarPendientes(): Int
@@ -84,7 +103,8 @@ interface RecoleccionRepository {
  *
  * Usa el prefijo `rec_` para no chocar con los ids `vid_NNNN` de los datos de prueba. Claves
  * propias del manifest (el lector actual las ignora): `estado` del video (`en_curso` /
- * `finalizado`), `sync` de cada foto (`pendiente` / `subida`) y los datos de cierre.
+ * `finalizado`), `sync` de cada foto (`pendiente` / `subida`), los datos de cierre y, desde FE-2.3,
+ * `progress` (lo necesario para retomar tras matar el proceso).
  *
  * Cada operación relee y reescribe el manifest completo (de forma atómica con un archivo
  * temporal). Es suficiente para unos cientos de fotos; si crece, pasar a Room.
@@ -93,7 +113,10 @@ class RecoleccionRepositoryLocal(context: Context) : RecoleccionRepository {
 
     private val filesDir: File = context.applicationContext.filesDir
     private val raiz = File(filesDir, "recoleccion")
-    private val mutex = Mutex()
+
+    // FE-2.1: el mismo cerrojo que AlmacenRecorridos (7.5 y la cola de subida escriben en los mismos manifests).
+    // Antes era un Mutex por instancia: dos instancias (7.4 y 7.3) no se excluían entre sí.
+    private val mutex: Mutex = CerrojoRecoleccion.mutex
 
     override suspend fun crearVideo(inicio: InicioRecoleccion): String = withContext(Dispatchers.IO) {
         mutex.withLock {
@@ -229,12 +252,46 @@ class RecoleccionRepositoryLocal(context: Context) : RecoleccionRepository {
         }
     }
 
+    override suspend fun leerEnCurso(videoId: String): VideoEnCurso = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val manifest = leer(videoId)
+            try {
+                VideoEnCurso(
+                    videoId = videoId,
+                    nombre = manifest.optString("name").ifBlank { videoId },
+                    inicioLat = manifest.getDouble("start_lat"),
+                    inicioLng = manifest.getDouble("start_lng"),
+                    inicioRumbo = manifest.optDouble("start_heading", 0.0).toFloat(),
+                    fotos = leerFotos(videoId, manifest),
+                    progreso = manifest.optJSONObject("progress")?.let { progresoDesdeJson(it) },
+                )
+            } catch (e: org.json.JSONException) {
+                throw IOException("Manifest incompleto en $videoId", e)
+            }
+        }
+    }
+
+    override suspend fun guardarProgreso(videoId: String, progreso: ProgresoRecoleccion) {
+        withContext(Dispatchers.IO) {
+            mutex.withLock {
+                val manifest = leer(videoId)
+                if (manifest.optString("estado") == ESTADO_EN_CURSO) {
+                    manifest.put("progress", progresoAJson(progreso))
+                    escribir(videoId, manifest)
+                }
+            }
+        }
+    }
+
+    /** Regla de ARCHITECTURE §5.10 (FE-2.1): `sync = pendiente` en los manifests con `estado = finalizado`. */
     override suspend fun contarPendientes(): Int = withContext(Dispatchers.IO) {
         mutex.withLock {
             raiz.listFiles()?.filter { it.isDirectory }?.sumOf { dir ->
                 runCatching {
-                    val fotos = leer(dir.name).getJSONArray("photos")
-                    (0 until fotos.length()).count { fotos.getJSONObject(it).optString("sync") != SYNC_SUBIDA }
+                    val manifest = leer(dir.name)
+                    if (manifest.optString("estado") != ESTADO_FINALIZADO) return@runCatching 0
+                    val fotos = manifest.getJSONArray("photos")
+                    (0 until fotos.length()).count { fotos.getJSONObject(it).optString("sync") == SYNC_PENDIENTE }
                 }.getOrDefault(0)
             } ?: 0
         }
@@ -298,6 +355,62 @@ class RecoleccionRepositoryLocal(context: Context) : RecoleccionRepository {
         }
     }
 
+    // ---- Progreso (clave `progress`, FE-2.3; formato en ARCHITECTURE §5.6) -------------------
+
+    private fun progresoAJson(p: ProgresoRecoleccion): JSONObject {
+        val modo = when (val m = p.modo) {
+            is ModoCaptura.PorDistancia -> JSONObject().put("type", MODO_DISTANCIA).put("value", m.metros)
+            is ModoCaptura.PorTiempo -> JSONObject().put("type", MODO_TIEMPO).put("value", m.segundos)
+        }
+        val track = JSONArray().apply { p.trayectoria.forEach { put(JSONArray().put(it.lat).put(it.lng)) } }
+        return JSONObject()
+            .put("lat", p.lat)
+            .put("lng", p.lng)
+            .put("heading", p.rumbo.toDouble())
+            .put("steps", p.pasos)
+            .put("distance_m", p.distanciaMetros)
+            .put("duration_s", p.duracionSegundos)
+            .put("anchor_distance_m", p.distanciaAnclaM)
+            .put("anchor_photo_index", p.indiceAnclaFoto)
+            .put("anchor_track_index", p.indiceAnclaTrayectoria)
+            .put("track", track)
+            .put("mode", modo)
+            .put("saved_at", iso(p.guardadoEnMs))
+    }
+
+    /** `null` si falta algo obligatorio: se retoma como un video sin progreso. */
+    private fun progresoDesdeJson(o: JSONObject): ProgresoRecoleccion? = runCatching {
+        val track = o.optJSONArray("track") ?: JSONArray()
+        val trayectoria = (0 until track.length()).map { i ->
+            val punto = track.getJSONArray(i)
+            PuntoRecorrido(punto.getDouble(0), punto.getDouble(1))
+        }
+        val modoJson = o.optJSONObject("mode")
+        val modo = if (modoJson == null) {
+            ModoCaptura.POR_DEFECTO
+        } else {
+            when (modoJson.optString("type")) {
+                MODO_DISTANCIA -> ModoCaptura.PorDistancia(modoJson.getDouble("value"))
+                MODO_TIEMPO -> ModoCaptura.PorTiempo(modoJson.getInt("value"))
+                else -> ModoCaptura.POR_DEFECTO
+            }
+        }
+        ProgresoRecoleccion(
+            lat = o.getDouble("lat"),
+            lng = o.getDouble("lng"),
+            rumbo = o.optDouble("heading", 0.0).toFloat(),
+            pasos = o.optInt("steps", 0),
+            distanciaMetros = o.optDouble("distance_m", 0.0),
+            duracionSegundos = o.optLong("duration_s", 0),
+            distanciaAnclaM = o.optDouble("anchor_distance_m", 0.0),
+            indiceAnclaFoto = o.optInt("anchor_photo_index", 0),
+            indiceAnclaTrayectoria = o.optInt("anchor_track_index", 0),
+            trayectoria = trayectoria,
+            modo = modo,
+            guardadoEnMs = parsearIso(o.optString("saved_at")),
+        )
+    }.onFailure { AppLog.w(TAG, "progress ilegible: se retoma sin él", it) }.getOrNull()
+
     // ---- Fechas (ISO-8601, el formato que 11.6 pide definir) -------------------------------
 
     private fun iso(ms: Long): String =
@@ -314,5 +427,7 @@ class RecoleccionRepositoryLocal(context: Context) : RecoleccionRepository {
         const val ESTADO_FINALIZADO = "finalizado"
         const val SYNC_PENDIENTE = "pendiente"
         const val SYNC_SUBIDA = "subida"
+        const val MODO_DISTANCIA = "distance"
+        const val MODO_TIEMPO = "time"
     }
 }

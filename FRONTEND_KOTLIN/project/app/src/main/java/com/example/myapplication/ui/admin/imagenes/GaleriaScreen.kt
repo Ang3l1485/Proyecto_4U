@@ -1,5 +1,6 @@
 package com.example.myapplication.ui.admin.imagenes
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -17,9 +18,13 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -48,11 +53,11 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,10 +69,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
@@ -76,12 +83,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.myapplication.domain.model.CalidadFoto
 import com.example.myapplication.domain.model.EstadoFoto
 import com.example.myapplication.domain.model.Foto
-import com.example.myapplication.domain.model.Video
 import java.text.NumberFormat
 
 // Paleta de la maqueta. TODO: moverla a ui/theme/CampusColors.kt cuando se unifique con el resto de vistas admin.
@@ -97,6 +105,9 @@ internal object GaleriaColores  {
     val Verde = Color(0xFF2ECC71)
     val Azul = Color(0xFF29B6F6)
     val Rojo = Color(0xFFFF5252)
+
+    /** FE-4.1: lo que es de este teléfono y aún no se subió (7.13 y 7.14). */
+    val Naranja = Color(0xFFF59E0B)
 }
 
 private enum class DialogoGaleria { ELIMINAR, REASIGNAR }
@@ -106,7 +117,9 @@ data class GaleriaAcciones(
     val onVolver: () -> Unit = {},
     val onReintentar: () -> Unit = {},
     val onBuscar: (String) -> Unit = {},
+    /** FE-4.1: id del lugar (o `null` = todos). */
     val onLugar: (String?) -> Unit = {},
+    /** FE-4.1: id del video (o `null` = todos). */
     val onVideo: (String?) -> Unit = {},
     val onEstado: (EstadoFoto?) -> Unit = {},
     val onCalidad: (CalidadFoto?) -> Unit = {},
@@ -114,26 +127,36 @@ data class GaleriaAcciones(
     val onModo: (ModoVista) -> Unit = {},
     val onPagina: (Int) -> Unit = {},
     val onAbrirFoto: (Foto) -> Unit = {},
+    /** FE-4.1: id de la imagen. */
     val onAlternarSeleccion: (String) -> Unit = {},
     val onEliminar: () -> Unit = {},
-    val onReasignar: (String) -> Unit = {},
+    /** FE-4.1: id del lugar elegido en el selector, o `null` = «Sin lugar». */
+    val onReasignar: (String?) -> Unit = {},
+    val onDescartarAviso: () -> Unit = {},
 )
 
-/** Pantalla conectada al ViewModel (la que usa el NavHost). */
+/**
+ * Pantalla conectada al ViewModel (la que usa el NavHost). FE-4.1: [lugarId] y [videoId] abren la Galería filtrada
+ * (desde «Ver fotos» de 7.6 y «Fotos asociadas» de 7.7). Tocar una foto sin selección avisa que el Detalle de imagen
+ * (7.12) llega más adelante.
+ */
 @Composable
 fun GaleriaScreen(
     onVolver: () -> Unit,
-    onAbrirImagen: (videoId: String, fotoId: String) -> Unit,
+    lugarId: String? = null,
+    videoId: String? = null,
     viewModel: GaleriaViewModel = viewModel(
-        factory = GaleriaViewModel.Factory(LocalContext.current.applicationContext)
+        key = "galeria-${lugarId.orEmpty()}-${videoId.orEmpty()}",
+        factory = GaleriaViewModel.Factory(lugarId, videoId),
     ),
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val contexto = LocalContext.current
 
-    val acciones = remember(viewModel, onVolver, onAbrirImagen) {
+    val acciones = remember(viewModel, onVolver) {
         GaleriaAcciones(
             onVolver = onVolver,
-            onReintentar = viewModel::cargar,
+            onReintentar = { viewModel.cargar() },
             onBuscar = viewModel::buscar,
             onLugar = viewModel::filtrarLugar,
             onVideo = viewModel::filtrarVideo,
@@ -142,15 +165,23 @@ fun GaleriaScreen(
             onLimpiarFiltros = viewModel::limpiarFiltros,
             onModo = viewModel::cambiarModo,
             onPagina = viewModel::irAPagina,
-            onAbrirFoto = { onAbrirImagen(it.videoId, it.id) },
+            onAbrirFoto = {
+                Toast.makeText(contexto, "El detalle de imagen llega más adelante.", Toast.LENGTH_SHORT).show()
+            },
             onAlternarSeleccion = viewModel::alternarSeleccion,
             onEliminar = viewModel::eliminarSeleccion,
             onReasignar = viewModel::reasignarSeleccion,
+            onDescartarAviso = viewModel::descartarAviso,
         )
     }
 
     // Con selección activa, "atrás" primero cancela la selección.
     BackHandler(enabled = state.seleccion.isNotEmpty()) { viewModel.limpiarSeleccion() }
+    // Las URLs de las fotos son prefirmadas (1 h): al volver a la pantalla se renuevan si están por vencer.
+    LifecycleResumeEffect(viewModel) {
+        viewModel.alReanudar()
+        onPauseOrDispose { }
+    }
 
     GaleriaContent(state = state, acciones = acciones)
 }
@@ -165,8 +196,7 @@ fun GaleriaContent(
 ) {
     var dialogo by remember { mutableStateOf<DialogoGaleria?>(null) }
 
-    val filtradas = state.filtradas
-    val paginaFotos = state.paginaActual
+    val paginaFotos = state.fotos
     val totalPaginas = state.totalPaginas
     val enModoSeleccion = state.seleccion.isNotEmpty()
     val miles = remember { NumberFormat.getIntegerInstance() }
@@ -176,9 +206,23 @@ fun GaleriaContent(
         containerColor = GaleriaColores.Fondo,
         topBar = { BarraSuperior(onVolver = acciones.onVolver) },
         bottomBar = {
-            Column(Modifier.background(GaleriaColores.Fondo)) {
+            Column(Modifier.background(GaleriaColores.Fondo).navigationBarsPadding()) {
+                state.operacion?.let { op ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+                            .semantics { liveRegion = LiveRegionMode.Polite },
+                    ) {
+                        CircularProgressIndicator(color = GaleriaColores.Primario, modifier = Modifier.size(20.dp))
+                        Text(
+                            if (op == OperacionLote.ELIMINANDO) "Eliminando las fotos…" else "Reasignando las fotos…",
+                            color = GaleriaColores.Texto, fontSize = 15.sp, modifier = Modifier.padding(start = 10.dp),
+                        )
+                    }
+                }
                 BarraSeleccion(
                     cantidad = state.seleccion.size,
+                    habilitada = state.operacion == null,
                     onReasignar = { dialogo = DialogoGaleria.REASIGNAR },
                     onEliminar = { dialogo = DialogoGaleria.ELIMINAR },
                 )
@@ -212,11 +256,13 @@ fun GaleriaContent(
                                 fontSize = 20.sp,
                                 fontWeight = FontWeight.SemiBold,
                             )
-                            Text(
-                                "${miles.format(filtradas.size)} imágenes",
-                                color = GaleriaColores.Acento,
-                                fontSize = 16.sp,
-                            )
+                            if (!state.cargando || state.total > 0) {
+                                Text(
+                                    if (state.total == 1) "1 imagen" else "${miles.format(state.total)} imágenes",
+                                    color = GaleriaColores.Acento,
+                                    fontSize = 16.sp,
+                                )
+                            }
                         }
                         Text(
                             "Página ${state.pagina} de $totalPaginas",
@@ -228,11 +274,26 @@ fun GaleriaContent(
                         )
                     }
 
+                    state.aviso?.let { aviso ->
+                        Text(
+                            aviso,
+                            color = GaleriaColores.Texto,
+                            fontSize = 15.sp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(GaleriaColores.Primario.copy(alpha = 0.2f))
+                                .clickable(onClickLabel = "Descartar aviso", onClick = acciones.onDescartarAviso)
+                                .semantics { liveRegion = LiveRegionMode.Polite }
+                                .padding(12.dp),
+                        )
+                    }
+
                     CampoTexto(
                         valor = state.filtros.busqueda,
                         onCambio = acciones.onBuscar,
-                        placeholder = "Buscar imágenes…",
-                        descripcion = "Buscar imágenes por nombre, lugar o video",
+                        placeholder = "Buscar por video o notas…",
+                        descripcion = "Buscar imágenes por nombre del video o notas",
                         icono = {
                             Icon(Icons.Default.Search, contentDescription = null, tint = GaleriaColores.Primario)
                         },
@@ -255,17 +316,21 @@ fun GaleriaContent(
                     ) {
                         FiltroChip(
                             etiqueta = "Lugar",
-                            seleccionado = state.filtros.lugar,
+                            seleccionado = state.filtros.lugarId?.let { id ->
+                                state.lugares.firstOrNull { it.id == id } ?: OpcionFiltro(id, state.nombreLugarFiltrado ?: "")
+                            },
                             opciones = state.lugares,
-                            textoDe = { it },
-                            onSeleccionar = acciones.onLugar,
+                            textoDe = { it.nombre },
+                            onSeleccionar = { lugar: OpcionFiltro? -> acciones.onLugar(lugar?.id) },
                         )
                         FiltroChip(
                             etiqueta = "Video",
-                            seleccionado = state.videos.firstOrNull { it.id == state.filtros.videoId },
+                            seleccionado = state.filtros.videoId?.let { id ->
+                                state.videos.firstOrNull { it.id == id } ?: OpcionFiltro(id, "el video elegido")
+                            },
                             opciones = state.videos,
                             textoDe = { it.nombre },
-                            onSeleccionar = { video: Video? -> acciones.onVideo(video?.id) },
+                            onSeleccionar = { video: OpcionFiltro? -> acciones.onVideo(video?.id) },
                         )
                         FiltroChip(
                             etiqueta = "Estado",
@@ -305,33 +370,30 @@ fun GaleriaContent(
                 }
 
                 state.modo == ModoVista.MAPA -> item(span = { GridItemSpan(maxLineSpan) }) {
-                    // TODO: dibujar las fotos filtradas en el mapa Leaflet (se resuelve junto con 7.14).
-                    MensajeVacio(
-                        texto = "La vista de mapa se conectará junto con el detalle de video. " +
-                            "Fotos con coordenadas: ${filtradas.size}.",
-                    )
+                    // La vista de mapa de la Galería pasó a un lote posterior (FE-4.4; decisión del usuario del 2026-10-27).
+                    MensajeVacio(texto = "La vista de mapa de la galería llega más adelante. Imágenes con estos filtros: ${state.total}.")
                 }
 
-                filtradas.isEmpty() -> item(span = { GridItemSpan(maxLineSpan) }) {
+                paginaFotos.isEmpty() -> item(span = { GridItemSpan(maxLineSpan) }) {
                     MensajeVacio(
-                        texto = "No hay imágenes con estos filtros.",
+                        texto = if (state.filtros.hayActivos) "No hay imágenes con estos filtros." else "Todavía no hay imágenes.",
                         accion = if (state.filtros.hayActivos) "Limpiar filtros" else null,
                         onAccion = acciones.onLimpiarFiltros,
                     )
                 }
 
                 else -> items(items = paginaFotos, key = { it.uid }) { foto ->
-                    val seleccionada = foto.uid in state.seleccion
+                    val seleccionada = foto.id in state.seleccion
                     TarjetaFoto(
                         foto = foto,
                         seleccionada = seleccionada,
                         enModoSeleccion = enModoSeleccion,
                         onClick = {
-                            if (enModoSeleccion) acciones.onAlternarSeleccion(foto.uid)
+                            if (enModoSeleccion) acciones.onAlternarSeleccion(foto.id)
                             else acciones.onAbrirFoto(foto)
                         },
-                        onLongClick = { acciones.onAlternarSeleccion(foto.uid) },
-                        onAlternar = { acciones.onAlternarSeleccion(foto.uid) },
+                        onLongClick = { acciones.onAlternarSeleccion(foto.id) },
+                        onAlternar = { acciones.onAlternarSeleccion(foto.id) },
                     )
                 }
             }
@@ -368,26 +430,41 @@ fun GaleriaContent(
         }
 
         DialogoGaleria.REASIGNAR -> {
-            var lugar by remember { mutableStateOf("") }
+            // FE-4.1: selector de lugares reales (`GET /v1/admin/places`) y «Sin lugar» (quita el lugar).
+            var elegido by remember { mutableStateOf<OpcionFiltro?>(null) }
+            val opciones = listOf(SIN_LUGAR) + state.lugares
             AlertDialog(
                 onDismissRequest = { dialogo = null },
                 containerColor = GaleriaColores.Tarjeta,
                 titleContentColor = GaleriaColores.Texto,
                 textContentColor = GaleriaColores.TextoSuave,
-                title = { Text("Reasignar a lugar") },
+                title = { Text("Reasignar ${state.seleccion.size} a un lugar") },
                 text = {
-                    // TODO: reemplazar por un selector de lugares reales (vista 7.6) cuando exista.
-                    CampoTexto(
-                        valor = lugar,
-                        onCambio = { lugar = it },
-                        placeholder = "Nombre del lugar",
-                        descripcion = "Nombre del lugar al que se reasignan las fotos",
-                    )
+                    Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                        if (!state.lugaresCargados) {
+                            Text("No se pudieron cargar los lugares: solo se puede quitar el lugar.", fontSize = 14.sp)
+                        }
+                        opciones.forEach { o ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .selectable(selected = elegido == o, role = Role.RadioButton) { elegido = o },
+                            ) {
+                                RadioButton(selected = elegido == o, onClick = null)
+                                Text(o.nombre, color = GaleriaColores.Texto, fontSize = 16.sp, modifier = Modifier.padding(start = 8.dp))
+                            }
+                        }
+                    }
                 },
                 confirmButton = {
                     TextButton(
-                        enabled = lugar.isNotBlank(),
-                        onClick = { acciones.onReasignar(lugar); dialogo = null },
+                        enabled = elegido != null,
+                        onClick = {
+                            acciones.onReasignar(if (elegido == SIN_LUGAR) null else elegido?.id)
+                            dialogo = null
+                        },
                     ) { Text("Reasignar", color = GaleriaColores.Acento) }
                 },
                 dismissButton = {
@@ -401,6 +478,9 @@ fun GaleriaContent(
         null -> Unit
     }
 }
+
+/** Opción «Sin lugar» del selector de «Reasignar» (envía `lugar_id: null`). */
+private val SIN_LUGAR = OpcionFiltro("", "Sin lugar")
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Componentes
@@ -571,8 +651,9 @@ private fun TarjetaFoto(
     onAlternar: () -> Unit,
 ) {
     val forma = RoundedCornerShape(16.dp)
+    // FE-4.1: «Foto N, video <nombre>, …» (lo lee `validate41.py`: «video <nombre>»).
     val descripcion = buildString {
-        append("Foto ${foto.nombreArchivo}, video ${foto.videoNombre}")
+        append("${foto.titulo}, video ${foto.videoNombre.ifEmpty { "sin nombre" }}")
         foto.lugar?.let { append(", lugar $it") }
         append(", ${foto.estado.etiqueta}")
         if (foto.calidad == CalidadFoto.ALTA) append(", alta calidad")
@@ -612,13 +693,20 @@ private fun TarjetaFoto(
         }
 
         Text(
-            foto.nombreArchivo,
+            foto.titulo,
             color = GaleriaColores.Texto,
             fontSize = 16.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 8.dp),
+        )
+        Text(
+            foto.videoNombre,
+            color = GaleriaColores.TextoSuave,
+            fontSize = 13.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
             Icon(
@@ -669,6 +757,7 @@ private fun TarjetaFoto(
 }
 
 private fun EstadoFoto.color(): Color = when (this) {
+    EstadoFoto.PENDIENTE -> GaleriaColores.TextoSuave // FE-2.1: foto local aún sin subir
     EstadoFoto.SUBIDA -> GaleriaColores.Azul
     EstadoFoto.PROCESADA -> GaleriaColores.Verde
     EstadoFoto.ERROR -> GaleriaColores.Rojo
@@ -703,7 +792,7 @@ private fun CirculoSeleccion(seleccionada: Boolean, onClick: () -> Unit, modifie
 }
 
 @Composable
-private fun BarraSeleccion(cantidad: Int, onReasignar: () -> Unit, onEliminar: () -> Unit) {
+private fun BarraSeleccion(cantidad: Int, habilitada: Boolean, onReasignar: () -> Unit, onEliminar: () -> Unit) {
     val forma = RoundedCornerShape(16.dp)
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -722,8 +811,8 @@ private fun BarraSeleccion(cantidad: Int, onReasignar: () -> Unit, onEliminar: (
                 .weight(1f)
                 .semantics { contentDescription = "$cantidad fotos seleccionadas" },
         )
-        BotonLote("Reasignar", Icons.Default.Edit, GaleriaColores.Acento, cantidad > 0, onReasignar)
-        BotonLote("Eliminar", Icons.Default.Delete, GaleriaColores.Rojo, cantidad > 0, onEliminar,
+        BotonLote("Reasignar", Icons.Default.Edit, GaleriaColores.Acento, habilitada && cantidad > 0, onReasignar)
+        BotonLote("Eliminar", Icons.Default.Delete, GaleriaColores.Rojo, habilitada && cantidad > 0, onEliminar,
             modifier = Modifier.padding(start = 8.dp))
     }
 }
@@ -851,13 +940,14 @@ private fun MensajeVacio(texto: String, accion: String? = null, onAccion: () -> 
 // ─────────────────────────────────────────────────────────────────────────────
 
 private fun fotoDePrueba(n: Int, lugar: String?, estado: EstadoFoto, calidad: CalidadFoto) = Foto(
-    id = "%04d".format(n),
-    videoId = "vid_0001",
-    videoNombre = "video1",
-    urlFoto = "file:///android_asset/videos/vid_0001/photos/%04d.png".format(n),
+    id = "img-$n",
+    videoId = "vid-1",
+    videoNombre = "Entrada norte",
+    urlFoto = "",
     urlMiniatura = "",
     lat = 6.2017, lng = -75.5788,
     lugar = lugar, estado = estado, calidad = calidad,
+    orden = n,
 )
 
 @Preview(showBackground = true, backgroundColor = 0xFF0A0A1E, heightDp = 900, widthDp = 380)
@@ -872,9 +962,10 @@ private fun GaleriaPreview() {
     GaleriaContent(
         state = GaleriaUiState(
             cargando = false,
-            videos = listOf(Video("vid_0001", "video1", fotos = fotos)),
-            todas = fotos,
-            seleccion = setOf(fotos[0].uid),
+            videos = listOf(OpcionFiltro("vid-1", "Entrada norte")),
+            fotos = fotos,
+            total = 4,
+            seleccion = setOf(fotos[0].id),
         ),
         acciones = GaleriaAcciones(),
     )

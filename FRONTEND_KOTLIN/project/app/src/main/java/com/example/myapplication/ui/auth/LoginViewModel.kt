@@ -4,8 +4,8 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.myapplication.data.remote.RemoteAuthRepository
 import com.example.myapplication.data.repository.AuthRepository
-import com.example.myapplication.data.repository.AuthRepositoryStub
 import com.example.myapplication.data.repository.CredencialesInvalidasException
 import com.example.myapplication.domain.model.Rol
 import com.example.myapplication.session.SessionManager
@@ -88,9 +88,10 @@ class LoginViewModel(
         }
     }
 
+    /** Desde FE-1.2, contra el backend (`RemoteAuthRepository`, `POST /v1/auth/login`). */
     class Factory(private val context: Context) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            LoginViewModel(AuthRepositoryStub(), SessionManager(context.applicationContext)) as T
+            LoginViewModel(RemoteAuthRepository(), SessionManager(context.applicationContext)) as T
     }
 }

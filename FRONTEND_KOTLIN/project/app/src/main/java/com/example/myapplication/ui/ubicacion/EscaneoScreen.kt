@@ -32,10 +32,11 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.myapplication.camera.crearCarpetaEscaneo // NUEVO
+import com.example.myapplication.camera.crearCarpetaEscaneo
 import com.example.myapplication.camera.crearImageCapture
 import com.example.myapplication.camera.liberarCamara
 import com.example.myapplication.camera.tomarFoto
+import com.example.myapplication.domain.model.ResultadoUbicacion
 import com.example.myapplication.sensors.EscucharOrientacion
 import com.example.myapplication.sensors.tieneSensorRotacion
 import com.example.myapplication.ui.ubicacion.EscaneoColores.Fondo
@@ -46,7 +47,7 @@ import com.example.myapplication.ui.ubicacion.componentes.IndicadorInclinacion
 import com.example.myapplication.ui.ubicacion.componentes.InstruccionGrande
 import com.example.myapplication.ui.ubicacion.componentes.RecordatoriosFijos
 import com.example.myapplication.ui.ubicacion.componentes.VistaCamara
-import java.io.File // NUEVO
+import java.io.File
 
 /*
  * Vista 6.2 — Ubicarse (escaneo 360°).
@@ -66,7 +67,7 @@ import java.io.File // NUEVO
 @Composable
 fun EscaneoScreen(
     onCancelar: () -> Unit,
-    onCompletado: () -> Unit,
+    onCompletado: (resultado: ResultadoUbicacion, rumboAlTerminar: Double?) -> Unit,
     onAjustes: () -> Unit = {},
     viewModel: EscaneoViewModel = viewModel(),
 ) {
@@ -74,14 +75,15 @@ fun EscaneoScreen(
     val estado by viewModel.estado.collectAsStateWithLifecycle()
     val imageCapture = remember { crearImageCapture() }
 
-    // NUEVO: carpeta del escaneo en curso (una por vuelta de 5 fotos),
-    // dentro de camera/photos/<yyyy-MM-dd_HH-mm-ss>/
+    // Carpeta del escaneo en curso (una por vuelta de 5 fotos), dentro de camera/photos/<yyyy-MM-dd_HH-mm-ss>/.
     var carpetaEscaneo by remember { mutableStateOf<File?>(null) }
 
-    // NUEVO: abre una carpeta nueva y arranca el escaneo (se usa al iniciar y al repetir)
+    // Abre una carpeta nueva y arranca el escaneo (al iniciar y al repetir). Con CONSERVAR_FOTOS en false
+    // (FE-3.2) solo se deja la carpeta nueva: se borran los restos de escaneos anteriores (p. ej. tras un cierre forzado).
     val nuevoEscaneo: () -> Unit = {
-        carpetaEscaneo = crearCarpetaEscaneo(ctx)
-        viewModel.iniciar()
+        val carpeta = crearCarpetaEscaneo(ctx, mantener = if (CONSERVAR_FOTOS) 20 else 1)
+        carpetaEscaneo = carpeta
+        viewModel.iniciar(carpeta)
     }
 
     // --- Permiso de cámara (normalmente ya concedido desde Inicio) ----------
@@ -116,19 +118,22 @@ fun EscaneoScreen(
     LaunchedEffect(Unit) {
         viewModel.eventos.collect { evento ->
             when (evento) {
-                // CAMBIO: ahora guarda en la carpeta del escaneo actual
+                // Guarda en la carpeta del escaneo actual (la misma que recibió el ViewModel en `iniciar`).
                 EscaneoEvento.Capturar -> {
                     val carpeta = carpetaEscaneo
-                        ?: crearCarpetaEscaneo(ctx).also { carpetaEscaneo = it }
-                    imageCapture.tomarFoto(
-                        ctx = ctx,
-                        carpeta = carpeta,
-                        prefijo = "escaneo",
-                        onGuardada = viewModel::onFotoTomada,
-                        onFallo = viewModel::onFotoFallida,
-                    )
+                    if (carpeta == null) {
+                        viewModel.onFotoFallida()
+                    } else {
+                        imageCapture.tomarFoto(
+                            ctx = ctx,
+                            carpeta = carpeta,
+                            prefijo = "escaneo",
+                            onGuardada = viewModel::onFotoTomada,
+                            onFallo = viewModel::onFotoFallida,
+                        )
+                    }
                 }
-                EscaneoEvento.Completado -> onCompletado()
+                is EscaneoEvento.Completado -> onCompletado(evento.resultado, evento.rumboAlTerminar)
             }
         }
     }

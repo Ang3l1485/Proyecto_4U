@@ -12,6 +12,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
@@ -76,6 +77,10 @@ open class PuenteWeb(private val mapa: MapaWeb) {
  *   está lista. Ponerlo en `false` si la pantalla ya aplica `systemBarsPadding()` y la página no define `setInsets`.
  * @param manejarAtras si es `true` el botón Atrás del sistema llama a `window.onAtras()` de la página, que decide qué
  *   cerrar (diálogo, selección, modo…) y al final llama a `salir()` por el puente.
+ * @param recursos (FE-4.1) responde peticiones de la página sin red: recibe la URL y devuelve la respuesta, o `null`
+ *   para que el `WebView` la pida como siempre. Se llama **en un hilo del `WebView`** (no el principal) y puede
+ *   bloquear; una excepción se convierte en `404`. Lo usa 7.14 para las miniaturas de los recorridos del teléfono
+ *   (`https://miniaturas.local/…`, `MiniaturasLocales`).
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -88,6 +93,7 @@ fun MapaWebView(
     modifier: Modifier = Modifier.fillMaxSize(),
     pasarInsets: Boolean = true,
     manejarAtras: Boolean = true,
+    recursos: ((String) -> WebResourceResponse?)? = null,
 ) {
     // Con edge-to-edge el WebView ocupa toda la pantalla y `env(safe-area-inset-*)` no funciona en WebView,
     // así que el alto de las barras del sistema se lo pasamos a la página.
@@ -120,6 +126,16 @@ fun MapaWebView(
                 webViewClient = object : WebViewClient() {
                     override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                         Log.e(tag, "Error cargando ${request.url}: ${error.description}")
+                    }
+
+                    override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+                        val responder = recursos ?: return null
+                        return try {
+                            responder(request.url.toString())
+                        } catch (e: Exception) {
+                            Log.w(tag, "No se pudo servir un recurso local: ${e.javaClass.simpleName}")
+                            WebResourceResponse("text/plain", "utf-8", 404, "No encontrado", emptyMap(), ByteArray(0).inputStream())
+                        }
                     }
                 }
                 addJavascriptInterface(puente, nombrePuente)

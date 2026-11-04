@@ -1,12 +1,17 @@
 package com.example.myapplication
 
 /**
- * Central place to configure the CLIP API endpoint.
- * After deploying, run:  bash ecs/get_ip.sh
- * Then paste the IP below.
+ * URL de la API del backend y tiempos máximos del cliente HTTP (ARCHITECTURE §5.10).
+ *
+ * [API_BASE_URL] es el output `api_base_url` de Terraform (`INFRASTRUCTURA_TERRAFORM/docs/ARCHITECTURE.md` §5.2),
+ * sin barra final. Si la API se recrea, la URL cambia: actualizar este valor (lo comprueba `validate11.py`, C4).
+ * El validador lee las dos líneas `const val` de abajo tal cual: no cambiar su forma.
  */
 object ApiConfig {
-    private const val HOST = "3.129.14.3"
-    const val BASE_URL = "http://$HOST:8080"
-    const val PREDICT_URL = "$BASE_URL/predict"
+    const val API_BASE_URL = "https://fuzq99kddb.execute-api.us-east-1.amazonaws.com"
+    const val BASE_URL = "$API_BASE_URL/v1"
+
+    const val TIMEOUT_CONEXION_S = 10L
+    const val TIMEOUT_LECTURA_S = 30L
+    const val TIMEOUT_ESCRITURA_S = 30L
 }

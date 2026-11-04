@@ -6,20 +6,21 @@ class CredencialesInvalidasException : Exception("Credenciales inválidas")
 
 interface AuthRepository {
     /**
-     * POST /auth/login → token + rol.
-     * @throws CredencialesInvalidasException si el backend responde 401/403 por credenciales.
+     * `POST /v1/auth/login` → [Sesion] con token, usuario y `expira_en` (backend §5.3). La implementación real es
+     * `data.remote.RemoteAuthRepository` (FE-1.2).
+     * @throws CredencialesInvalidasException si el backend responde `401 CREDENCIALES_INVALIDAS`.
      * @throws java.io.IOException si no hay conexión o el servidor no responde.
      */
     suspend fun login(identificador: String, password: String): Sesion
 }
 
 /**
- * TODO: reemplazar por la implementación real con Retrofit/Ktor usando ApiConfig.kt.
- * Mientras tanto devuelve una sesión simulada para poder probar la pantalla:
+ * Sesión simulada, sin red (desde FE-1.2 la app usa `RemoteAuthRepository`; esto queda para pruebas a mano):
  *   - "admin@campus.edu.co" / cualquier clave  → ADMIN
  *   - "user@campus.edu.co"                      → USER (muestra "sin permisos")
  *   - "offline"                                 → simula falta de conexión
  *   - cualquier otro                            → credenciales inválidas
+ * La sesión vence a las 12 h, como el JWT del backend.
  */
 class AuthRepositoryStub : AuthRepository {
     override suspend fun login(identificador: String, password: String): Sesion {
@@ -35,6 +36,7 @@ class AuthRepositoryStub : AuthRepository {
             usuario = com.example.myapplication.domain.model.Usuario(
                 id = "1", nombre = "Administrador", correo = identificador.trim(), rol = rol,
             ),
+            expiraEnMs = System.currentTimeMillis() + 12 * 60 * 60 * 1000L,
         )
     }
 }
