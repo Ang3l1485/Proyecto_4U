@@ -4,14 +4,15 @@ import com.example.myapplication.domain.model.ResumenAdmin
 
 interface AdminRepository {
     /**
-     * Totales del dataset, lugares y alertas activas: backend (GET /admin/stats).
-     * Fotos pendientes de subir: cola local (data/local), no viene del backend.
-     * @throws java.io.IOException si no hay conexión.
+     * Totales del dataset, lugares, alertas activas y último video: backend (`GET /v1/admin/stats`).
+     * Fotos pendientes de subir: cola local (`data/local`), no viene del backend.
+     * La implementación real es `RemoteAdminRepository` (FE-2.2; errores en su KDoc): sin conexión lanza una
+     * `java.io.IOException` (`SinConexionException`).
      */
     suspend fun obtenerResumen(): ResumenAdmin
 }
 
-/** TODO: reemplazar por la implementación real (Retrofit/Ktor + cola local de subida). */
+/** Datos fijos para desarrollo (sin uso en la app desde FE-2.2, que usa `RemoteAdminRepository`). */
 class AdminRepositoryStub : AdminRepository {
     override suspend fun obtenerResumen(): ResumenAdmin {
         kotlinx.coroutines.delay(600)
