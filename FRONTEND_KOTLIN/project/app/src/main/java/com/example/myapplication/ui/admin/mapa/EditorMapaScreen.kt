@@ -1,15 +1,18 @@
 package com.example.myapplication.ui.admin.mapa
 
 import android.webkit.JavascriptInterface
+import android.widget.Toast
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.myapplication.map.MapaWeb
@@ -29,6 +32,9 @@ interface EditorMapaEventos {
     fun verLista()
     fun pedirMiPosicion()
     fun salir()
+
+    /** FE-3.3: terminó «Ajustar en el mapa» (Listo con la posición nueva; Cancelar o Atrás con la original). */
+    fun ajusteTerminado(lat: Double, lng: Double) {}
 }
 
 /** Vista 7.8 — Editor de mapa y alertas. Es la que se usa en el NavHost. */
@@ -38,10 +44,15 @@ fun EditorMapaScreen(
     onVerLista: () -> Unit,
     posicionAdmin: () -> Pair<Double, Double>?,
     modifier: Modifier = Modifier.fillMaxSize(),
-    vm: EditorMapaViewModel = viewModel(),
+    vm: EditorMapaViewModel = viewModel(factory = EditorMapaViewModel.Factory(LocalContext.current.applicationContext)),
 ) {
     val ui by vm.ui.collectAsStateWithLifecycle()
+    val pedido by PedidosEditorMapa.pedido.collectAsStateWithLifecycle()
+    val ctx = LocalContext.current
     var miPos by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    var pedidosPos by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(vm) { vm.avisos.collect { Toast.makeText(ctx, it, Toast.LENGTH_LONG).show() } }
 
     EditorMapaContent(
         alertasJson = ui.alertasJson,
@@ -49,6 +60,10 @@ fun EditorMapaScreen(
         pendientes = ui.pendientes.size,
         borradorJson = ui.borradorJson,
         miPosicion = miPos,
+        pedidoPosicion = pedidosPos,
+        ajustando = ui.ajustando,
+        pedido = pedido,
+        onPedidoAtendido = PedidosEditorMapa::atendido,
         modifier = modifier,
         eventos = object : EditorMapaEventos {
             override fun abrirFormulario(id: String?, lat: Double, lng: Double) = vm.abrirFormulario(id, lat, lng)
@@ -57,27 +72,36 @@ fun EditorMapaScreen(
             override fun eliminarAlerta(id: String) = vm.eliminar(id)
             override fun sincronizar() = vm.sincronizar()
             override fun verLista() = onVerLista()
-            override fun pedirMiPosicion() { miPos = posicionAdmin() }
+            override fun pedirMiPosicion() {
+                val p = posicionAdmin()
+                if (p == null) vm.avisar(TextosAlertas.SIN_POSICION) else { miPos = p; pedidosPos++ }
+            }
             override fun salir() = onVolver()
+            override fun ajusteTerminado(lat: Double, lng: Double) = vm.ajusteTerminado(lat, lng)
         },
     )
 
-    ui.formulario?.let { alerta ->
+    // Mientras se ajusta la posición en el mapa la hoja no se compone (el borrador sigue en el mapa).
+    val formulario = ui.formulario
+    if (formulario != null && !ui.ajustando) {
         AlertaFormSheet(
-            alerta = alerta,
+            alerta = formulario,
             esNueva = ui.formularioEsNuevo,
-            error = ui.error,
+            error = ui.errores.mensaje ?: ui.errores.general,
+            errorVigencia = ui.errores.vigencia,
             onCambio = vm::actualizarFormulario,
             onGuardar = vm::guardarFormulario,
             onCancelar = vm::cancelarFormulario,
-            onEliminar = { vm.eliminar(alerta.id); vm.cancelarFormulario() },
+            onEliminar = { vm.eliminar(formulario.id); vm.cancelarFormulario() },
+            onAjustarEnMapa = vm::ajustarEnMapa,
         )
     }
 }
 
 /**
  * Solo dibuja el WebView (`assets/editor_mapa.html`: Leaflet + OpenStreetMap en línea) con el [MapaWebView] común.
- * Recibe todo como JSON; no conoce el ViewModel.
+ * Recibe todo como JSON; no conoce el ViewModel. FE-3.3: [pedidoPosicion] sube con cada «Mi posición» (vuelve a centrar
+ * aunque la posición sea la misma), [ajustando] pide `ajustarBorrador()` y [pedido] llega de la lista 7.10.
  */
 @Composable
 fun EditorMapaContent(
@@ -88,12 +112,16 @@ fun EditorMapaContent(
     eventos: EditorMapaEventos,
     modifier: Modifier = Modifier.fillMaxSize(),
     miPosicion: Pair<Double, Double>? = null,
+    pedidoPosicion: Int = 0,
+    ajustando: Boolean = false,
+    pedido: PedidoEditor? = null,
+    onPedidoAtendido: (PedidoEditor) -> Unit = {},
 ) {
     val mapa = rememberMapaWeb()
     val eventosActuales by rememberUpdatedState(eventos)
     val puente = remember(mapa) { EditorPuente(mapa) { eventosActuales } }
 
-    // El JS sale de los modos temporales (mover, colocar, formulario) y al final llama a salir().
+    // El JS sale de los modos temporales (mover, colocar, ajustar, formulario) y al final llama a salir().
     MapaWebView(mapa, html = "editor_mapa.html", puente = puente, nombrePuente = "EditorBridge", tag = "EditorMapa", modifier = modifier)
 
     // Empuja el estado al mapa cuando la página avisa que está lista y cada vez que cambia.
@@ -101,7 +129,18 @@ fun EditorMapaContent(
     LaunchedEffect(mapa.listo, lugaresJson) { if (mapa.listo) mapa.js("cargarLugares(${literalJs(lugaresJson)})") }
     LaunchedEffect(mapa.listo, pendientes) { if (mapa.listo) mapa.js("setPendientes($pendientes)") }
     LaunchedEffect(mapa.listo, borradorJson) { if (mapa.listo) mapa.js("setBorrador(${borradorJson?.let(::literalJs) ?: "null"})") }
-    LaunchedEffect(mapa.listo, miPosicion) { if (mapa.listo && miPosicion != null) mapa.js("setMiPosicion(${miPosicion.first}, ${miPosicion.second})") }
+    LaunchedEffect(mapa.listo, miPosicion, pedidoPosicion) {
+        if (mapa.listo && miPosicion != null) mapa.js("setMiPosicion(${miPosicion.first}, ${miPosicion.second})")
+    }
+    LaunchedEffect(mapa.listo, ajustando) { if (mapa.listo && ajustando) mapa.js("ajustarBorrador()") }
+    LaunchedEffect(mapa.listo, pedido) {
+        if (!mapa.listo || pedido == null) return@LaunchedEffect
+        when (pedido) {
+            is PedidoEditor.VerAlerta -> mapa.js("verAlerta(${literalJs(pedido.id)})")
+            PedidoEditor.NuevaAlerta -> mapa.js("nuevaAlerta()")
+        }
+        onPedidoAtendido(pedido)
+    }
 }
 
 /** Puente `EditorBridge` (web → app). `listo()` viene de [PuenteWeb]. Debe ser `internal` o público: el WebView lo invoca por reflexión. */
@@ -121,4 +160,5 @@ internal class EditorPuente(mapa: MapaWeb, private val eventos: () -> EditorMapa
     @JavascriptInterface fun verLista() { enHiloPrincipal { eventos().verLista() } }
     @JavascriptInterface fun pedirMiPosicion() { enHiloPrincipal { eventos().pedirMiPosicion() } }
     @JavascriptInterface fun salir() { enHiloPrincipal { eventos().salir() } }
+    @JavascriptInterface fun ajusteTerminado(lat: Double, lng: Double) { enHiloPrincipal { eventos().ajusteTerminado(lat, lng) } }
 }
